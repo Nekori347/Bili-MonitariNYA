@@ -1,4 +1,5 @@
-import { biliFetch } from "../bilibili/client";
+import { invoke } from "@tauri-apps/api/core";
+import { biliFetch, getRequestCookie } from "../bilibili/client";
 import { cookiesFromHeaders, cookiesFromUrl } from "./session";
 
 /**
@@ -34,6 +35,22 @@ function parse(body: string): any {
   }
 }
 
+const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/** Walk a redirect chain and collect every Set-Cookie header (Rust layer). */
+async function followRedirects(url: string): Promise<string[]> {
+  if (!isTauri()) return [];
+  try {
+    const res = await invoke<{ cookies?: string[] }>("login_follow", {
+      url,
+      cookie: getRequestCookie(),
+    });
+    return res?.cookies ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export async function generateQrSession(): Promise<QrSession> {
   const res = await biliFetch(QR_GENERATE, { params: [["source", "main-fe-header"]] });
   const json = parse(res.body);
@@ -61,8 +78,22 @@ export async function pollQrSession(key: string): Promise<QrPollResult> {
   // 86101 未扫码 / 86090 已扫码待确认 / 86038 已过期 / 0 成功
   switch (Number(data.code)) {
     case 0: {
-      let cookie = cookiesFromHeaders(res.cookies ?? []);
-      if (!cookie.includes("SESSDATA")) cookie = cookiesFromUrl(String(data.url ?? ""));
+      // 1) cookies attached straight to the poll response.
+      const raw: string[] = [...(res.cookies ?? [])];
+      let cookie = cookiesFromHeaders(raw);
+
+      // 2) Bilibili now hands out a crossDomain ticket URL: the session cookies
+      //    are only issued while following that redirect chain. Re-polling would
+      //    fail (qrcode_key is spent), so capture here, synchronously.
+      const target = String(data.url ?? "");
+      if (!cookie.includes("SESSDATA") && target.startsWith("http")) {
+        const followed = await followRedirects(target);
+        cookie = cookiesFromHeaders([...raw, ...followed]);
+      }
+
+      // 3) last resort: the redirect URL carries the same values in its query.
+      if (!cookie.includes("SESSDATA")) cookie = cookiesFromUrl(target);
+
       if (!cookie.includes("SESSDATA")) {
         return { state: "error", message: "登录凭据获取失败，请重试" };
       }

@@ -15,6 +15,65 @@ interface FetchRequest {
   wantCookies?: boolean;
 }
 
+/* ------------------------------------------------------------------ *
+ * Cookie jar: device fingerprint + optional login session.
+ * Bilibili risk control rejects `space/wbi/acc/info` with -352 unless a
+ * buvid3/buvid4 device cookie is present, so we obtain one once and keep it.
+ * ------------------------------------------------------------------ */
+
+const DEVICE_KEY = "bili_device_cookie";
+
+let sessionCookie: string | null = null;
+let deviceCookie: string | null = readDeviceCookie();
+let devicePending: Promise<void> | null = null;
+
+function readDeviceCookie(): string | null {
+  try {
+    return window.localStorage.getItem(DEVICE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeDeviceCookie(value: string) {
+  try {
+    window.localStorage.setItem(DEVICE_KEY, value);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Set (or clear) the login session cookie. Never logged. */
+export function setSessionCookie(cookie: string | null) {
+  sessionCookie = cookie;
+}
+
+export function getRequestCookie(): string | null {
+  const parts = [deviceCookie, sessionCookie].filter((v): v is string => !!v && v.length > 0);
+  return parts.length > 0 ? parts.join("; ") : null;
+}
+
+/** Fetch and cache the device fingerprint (buvid3/buvid4) once per install. */
+export async function ensureDeviceCookie(): Promise<void> {
+  if (deviceCookie) return;
+  if (devicePending) return devicePending;
+  devicePending = (async () => {
+    try {
+      const res = await biliFetch("https://api.bilibili.com/x/frontend/finger/spi", { noDevice: true });
+      const data = JSON.parse(res.body)?.data;
+      if (data?.b_3) {
+        deviceCookie = `buvid3=${data.b_3}${data.b_4 ? `; buvid4=${data.b_4}` : ""}; b_nut=${Math.floor(Date.now() / 1000)}`;
+        writeDeviceCookie(deviceCookie);
+      }
+    } catch {
+      /* transient: retried on the next call */
+    } finally {
+      devicePending = null;
+    }
+  })();
+  return devicePending;
+}
+
 // Detect if we are running inside Tauri (as opposed to plain `vite dev` in a browser).
 const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -42,14 +101,25 @@ function pace(): Promise<void> {
  */
 export async function biliFetch(
   url: string,
-  opts: { params?: [string, string][]; cookie?: string | null; wantCookies?: boolean } = {},
+  opts: {
+    params?: [string, string][];
+    cookie?: string | null;
+    wantCookies?: boolean;
+    /** Internal: skip the device-cookie bootstrap (used by the bootstrap itself). */
+    noDevice?: boolean;
+    /** Internal: send no cookie at all. */
+    noCookie?: boolean;
+  } = {},
 ): Promise<FetchResult> {
-  const { params = [], cookie = null, wantCookies = false } = opts;
+  const { params = [], cookie, wantCookies = false, noDevice = false, noCookie = false } = opts;
 
+  if (!noDevice) await ensureDeviceCookie();
   await pace();
 
+  const effectiveCookie = noCookie ? null : (cookie ?? getRequestCookie());
+
   if (isTauri()) {
-    const req: FetchRequest = { url, method: "get", params, cookie, wantCookies };
+    const req: FetchRequest = { url, method: "get", params, cookie: effectiveCookie, wantCookies };
     return invoke<FetchResult>("fetch_bili", { req });
   }
 

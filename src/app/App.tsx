@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Providers } from "./providers";
 import { useSubscriptions } from "../queries/subscriptions";
@@ -7,13 +7,11 @@ import { useSettingsStore } from "../store/settingsStore";
 import { useAuthStore } from "../store/authStore";
 import { Titlebar } from "../features/window-controls/Titlebar";
 import { Sidebar } from "../features/subscriptions/Sidebar";
-import { BookmarkRail } from "../features/subscriptions/BookmarkRail";
 import { ProfileCard } from "../features/profile-card/ProfileCard";
 import { VideoList } from "../features/video-list/VideoList";
 import { AddSubscriptionModal } from "../features/subscriptions/AddSubscriptionModal";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
 import {
-  adjustWindowWidth,
   applyWindowEffects,
   setAlwaysOnTop,
   setCloseBehavior,
@@ -21,9 +19,6 @@ import {
   onWindowShown,
   onTrayRefresh,
 } from "../utils/window";
-
-/** Width of the transparent strip that hosts the collapsed bookmark rail. */
-export const GUTTER_W = 134;
 
 function useThemeEffect() {
   const theme = useSettingsStore((s) => s.global.theme);
@@ -170,26 +165,13 @@ function Main() {
 
   // Collapsing the sidebar widens the window to the left so the visible panel
   // keeps its width and the new strip stays transparent (bookmark rail lives there).
-  // Only fires on an actual collapse/expand (and survives StrictMode's double effect).
-  const prevCollapsed = useRef(sidebarCollapsed);
-  useEffect(() => {
-    if (prevCollapsed.current === sidebarCollapsed) return;
-    prevCollapsed.current = sidebarCollapsed;
-    void adjustWindowWidth(sidebarCollapsed ? GUTTER_W : -GUTTER_W);
-  }, [sidebarCollapsed]);
-
   return (
     <div className="app-root">
-      {sidebarCollapsed && <BookmarkRail subs={subs ?? []} />}
-
-      <div
-        className="app-shell"
-        style={{ left: sidebarCollapsed ? GUTTER_W : 0, transition: "left 190ms cubic-bezier(0.22,0.61,0.36,1)" }}
-      >
+      <div className="app-shell">
         <div className="accent-bar" />
         <Titlebar />
         <div className="flex flex-1 min-h-0 relative">
-          {!sidebarCollapsed && <Sidebar subs={subs ?? []} loading={isLoading} />}
+          <Sidebar subs={subs ?? []} loading={isLoading} collapsed={sidebarCollapsed} />
           <main className="flex-1 min-w-0 p-2.5 flex flex-col min-h-0">
             {!hasSubs ? (
               <EmptyState />

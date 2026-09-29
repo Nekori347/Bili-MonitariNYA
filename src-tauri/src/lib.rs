@@ -79,6 +79,77 @@ async fn fetch_bili(req: BiliFetchRequest) -> Result<BiliFetchResponse, String> 
     Ok(BiliFetchResponse { status, body, cookies })
 }
 
+/// Follow a login redirect chain by hand so every `Set-Cookie` hop is captured.
+///
+/// After a successful QR poll Bilibili hands out a `crossDomain?ticket=...` URL
+/// instead of putting the session cookies on the poll response; the cookies are
+/// only issued while following that redirect. reqwest drops intermediate headers
+/// when it follows redirects itself, so we disable auto-redirect and walk the
+/// chain, accumulating cookies. Cookie values are returned to the caller and
+/// never logged.
+#[tauri::command]
+async fn login_follow(url: String, cookie: Option<String>) -> Result<BiliFetchResponse, String> {
+    const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+                      (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .user_agent(UA)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut cookies: Vec<String> = Vec::new();
+    let mut current = url;
+    let mut status = 0u16;
+
+    for _ in 0..10 {
+        let mut req = client
+            .get(&current)
+            .header("Referer", "https://www.bilibili.com/")
+            .header("Origin", "https://www.bilibili.com")
+            .header("Accept", "application/json, text/plain, */*");
+        if let Some(c) = cookie.as_ref() {
+            if !c.trim().is_empty() {
+                req = req.header("Cookie", c.trim());
+            }
+        }
+
+        let resp = req.send().await.map_err(|e| e.to_string())?;
+
+        status = resp.status().as_u16();
+        for v in resp.headers().get_all(reqwest::header::SET_COOKIE).iter() {
+            if let Ok(s) = v.to_str() {
+                cookies.push(s.to_string());
+            }
+        }
+
+        let location = resp
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        match location {
+            Some(loc) if resp.status().is_redirection() => {
+                current = if loc.starts_with("http") {
+                    loc
+                } else if let Ok(base) = reqwest::Url::parse(&current) {
+                    base.join(&loc).map(|u| u.to_string()).unwrap_or(loc)
+                } else {
+                    loc
+                };
+            }
+            _ => break,
+        }
+    }
+
+    Ok(BiliFetchResponse {
+        status,
+        body: String::new(),
+        cookies,
+    })
+}
+
 /// Close-button behavior: true = hide to tray (default), false = quit app.
 struct CloseBehavior(Mutex<bool>);
 
@@ -230,6 +301,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             fetch_bili,
+            login_follow,
             set_close_behavior,
             download_asset,
             clear_user_cache,

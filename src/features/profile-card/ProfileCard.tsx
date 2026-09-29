@@ -12,14 +12,45 @@ import type { DynamicDecoration, UserProfile } from "../../services/bilibili/typ
 import { Upload } from "../../components/ui/Icons";
 import { LEVEL_SVGS } from "../../components/ui/levelSvgs";
 
+/* Avatar stack geometry.
+ * The pendant art is a 420×420 canvas whose inner hole measures ~200px across,
+ * so the ring only sits AROUND the avatar when it is rendered at
+ * avatar / 0.476 ≈ 2.1×. Anything smaller presses the frame into the avatar. */
+const AVATAR = 72;
+const PENDANT = Math.round(AVATAR / 0.476); // ≈ 151
+const BOLT = 22;
+/** Distance from the stack's bottom-right corner to the bolt's, so the bolt
+ *  centre lands on the avatar circle's 45° rim point (overlapping the frame). */
+const boltInset = (stack: number) => Math.round((stack - AVATAR) / 2 + AVATAR * (0.5 - Math.SQRT2 / 4) - BOLT / 2);
+
+/**
+ * The raw level SVGs all use `viewBox="0 0 30 30"`, but the badge artwork only
+ * occupies x≈1..22 of that box (the hardcore variant adds a bolt up to x≈29.7).
+ * Rendering the full box therefore pushes the badge left of centre — so each
+ * variant is cropped to its own measured content box before display.
+ */
+const LEVEL_VIEWBOX: Record<string, string> = {
+  "0": "1 8.8 21.1 12.4",
+  "1": "1 8.8 21.1 12.4",
+  "2": "1 8.8 21.1 12.4",
+  "3": "1 8.8 21.1 12.4",
+  "4": "1 8.8 21.1 12.4",
+  "5": "1 8.8 21.1 12.4",
+  "6": "1 8.6 21.1 12.6",
+  h: "0.4 7.7 29.4 14.1",
+};
+
+const LEVEL_H = 14;
+
 function LevelIcon({ profile }: { profile: UserProfile }) {
   const key = profile.level === 6 && profile.isSeniorMember ? "h" : String(profile.level);
-  const svg = LEVEL_SVGS[key];
-  if (!svg) return null;
+  const raw = LEVEL_SVGS[key];
+  if (!raw) return null;
+  const svg = raw.replace(/viewBox="[^"]*"/, `viewBox="${LEVEL_VIEWBOX[key] ?? LEVEL_VIEWBOX["0"]}"`);
   return (
     <span
-      className="inline-flex flex-none items-center justify-center"
-      style={{ width: 34, height: 34 }}
+      className="lv-badge flex-none"
+      style={{ height: LEVEL_H }}
       title={profile.isSeniorMember ? `硬核会员 Lv${profile.level}` : `Lv${profile.level}`}
       dangerouslySetInnerHTML={{ __html: svg }}
     />
@@ -41,6 +72,9 @@ export function ProfileCard({ mid }: { mid: number }) {
   const faceSrc = useCachedAsset(profile?.face, `users/${mid}/avatar`);
   const pendantSrc = useCachedAsset(profile?.pendantUrl, `users/${mid}/pendant`);
   const open = (url: string) => void openUrl(url);
+  // The stack reserves the pendant's full canvas when one exists so nothing clips.
+  const stackSize = fields.pendant && pendantSrc ? PENDANT : AVATAR + 20;
+  const inset = boltInset(stackSize);
 
   if (loading && !profile) return <div className="card h-36 animate-pulse" />;
   if (!profile) {
@@ -59,67 +93,79 @@ export function ProfileCard({ mid }: { mid: number }) {
         )}
         {fields.banner && !banner && <div className="absolute inset-0" style={{ background: "var(--accent-soft)" }} />}
 
-        <div className="relative flex items-start gap-2.5 px-3 pt-6 pb-2">
-          {/* Left avatar column — single center axis for avatar + level */}
+        <div className="relative flex items-start gap-2.5 px-3 pt-5 pb-2">
+          {/* Left avatar column — single center axis for avatar stack + level */}
           {fields.avatar && (
-            <div className="flex flex-col items-center flex-none">
-              <div className="relative" style={{ width: 112, height: 112 }}>
+            <div className="flex flex-col items-center flex-none" style={{ overflow: "visible" }}>
+              <div className="relative" style={{ width: stackSize, height: stackSize, overflow: "visible" }}>
                 <button className="absolute inset-0 cursor-pointer flex items-center justify-center" onClick={() => open(spaceUrl(mid))} title="打开主页">
-                  {/* AVATAR_LAYER (1×) */}
+                  {/* AVATAR_LAYER (1×) — the only clipped layer */}
                   <img src={faceSrc} alt=""
                     className="rounded-full object-cover absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-                    style={{ width: 72, height: 72, background: "var(--surface-2)", outline: "2px solid var(--bg)" }}
+                    style={{ width: AVATAR, height: AVATAR, background: "var(--surface-2)", outline: "2px solid var(--bg)" }}
                     draggable={false} />
-                  {/* PENDENT_LAYER (1.5× of avatar) — must exceed the avatar body */}
+                  {/* PENDENT_LAYER — Bilibili pendant art is a 420px canvas whose
+                      inner hole is ~0.476 of the canvas, so the pendant must be
+                      sized avatar/0.476 ≈ 2.1× for the ring to sit AROUND the
+                      avatar instead of on top of it. */}
                   {fields.pendant && pendantSrc && (
                     <img src={pendantSrc} alt=""
                       className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 object-contain pointer-events-none"
-                      style={{ width: 108, height: 108 }} draggable={false} />
+                      style={{ width: PENDANT, height: PENDANT }} draggable={false} />
                   )}
                 </button>
-                {/* Certification bolt: sits on the avatar's lower-right rim */}
-                {fields.official && profile.official && <CertIcon role={profile.official.role} title={profile.official.title} />}
+                {/* Certification bolt: on the avatar's lower-right rim, overlapping the frame */}
+                {fields.official && profile.official && (
+                  <CertIcon role={profile.official.role} title={profile.official.title} inset={inset} />
+                )}
               </div>
               {fields.level && <LevelIcon profile={profile} />}
             </div>
           )}
 
-          {/* Right identity column */}
+          {/* Right identity column — compact 3 rows */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
+            {/* row 1: name block · sex · vip */}
+            <div className="flex items-center" style={{ gap: 4 }}>
               {fields.name && (
                 remark ? (
-                  <div className="min-w-0">
-                    <button className="block font-semibold text-[14px] truncate cursor-pointer hover:underline max-w-full"
+                  <div className="min-w-0 flex flex-col justify-center leading-[1.15]">
+                    <button className="block truncate text-left font-semibold text-[14px] cursor-pointer hover:underline"
                       style={{ color: profile.nicknameColor || "var(--text)" }}
-                      onClick={() => open(spaceUrl(mid))} title={remark}>
+                      onClick={() => open(spaceUrl(mid))}>
                       {remark}
                     </button>
-                    <button className="block text-[11px] truncate cursor-pointer hover:underline"
+                    <button className="block truncate text-left text-[10.5px] cursor-pointer hover:underline"
                       style={{ color: "var(--text-3)" }}
-                      onClick={() => open(spaceUrl(mid))} title={profile.name}>
+                      onClick={() => open(spaceUrl(mid))}>
                       {profile.name}
                     </button>
                   </div>
                 ) : (
-                  <button className="font-semibold text-[15px] truncate cursor-pointer hover:underline max-w-[55%]"
-                    style={{ color: profile.nicknameColor || "var(--text)" }}
-                    onClick={() => open(spaceUrl(mid))} title={profile.name}>
+                  <button className="font-semibold text-[15px] leading-[1.2] truncate cursor-pointer hover:underline"
+                    style={{ color: profile.nicknameColor || "var(--text)", maxWidth: "58%" }}
+                    onClick={() => open(spaceUrl(mid))}>
                     {profile.name}
                   </button>
                 )
               )}
-              {fields.sex && profile.sex && <span className="inline-flex self-center"><SexIcon sex={profile.sex} /></span>}
+              {fields.sex && profile.sex && (
+                <span className="sex-chip"><SexIcon sex={profile.sex} /></span>
+              )}
+              {fields.vip && profile.isVip && <VipLabel profile={profile} />}
             </div>
-            {(fields.uid || fields.vip) && (
-              <div className="flex items-center gap-1.5 mt-0.5">
-                {fields.uid && <span className="text-[11px]" style={{ color: "var(--text-2)" }}>UID {mid}</span>}
-                {fields.vip && profile.isVip && <VipLabel profile={profile} />}
+
+            {/* row 2: UID · fans medal */}
+            {(fields.uid || fields.fansMedal) && (
+              <div className="flex items-center" style={{ gap: 5, marginTop: 3 }}>
+                {fields.uid && <span className="text-[11px] leading-[1.2]" style={{ color: "var(--text-2)" }}>UID {mid}</span>}
+                {fields.fansMedal && profile.fansMedal && <FansMedal profile={profile} />}
               </div>
             )}
-            {fields.fansMedal && profile.fansMedal && <FansMedal profile={profile} />}
+
+            {/* row 3: sign */}
             {fields.sign && profile.sign && (
-              <p className="text-[11.5px] mt-1 leading-snug break-words" style={{ color: "var(--text-2)" }}>
+              <p className="text-[11.5px] leading-[1.25] break-words" style={{ color: "var(--text-2)", marginTop: 3 }}>
                 {profile.sign}
               </p>
             )}
@@ -165,7 +211,7 @@ function StatCell({ value, label, unavailable }: { value: number | null; label: 
   );
 }
 
-function CertIcon({ role, title }: { role: number; title: string }) {
+function CertIcon({ role, title, inset }: { role: number; title: string; inset: number }) {
   const isOrg = role >= 4 && role <= 6;
   const color = isOrg ? "#00a1d6" : "#ffc21f";
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
@@ -180,9 +226,9 @@ function CertIcon({ role, title }: { role: number; title: string }) {
   return (
     <>
       <span ref={ref} className="absolute rounded-full cursor-help flex items-center justify-center"
-        style={{ background: "#fff", boxShadow: "0 0 0 1px rgba(0,0,0,0.08)", right: 16, bottom: 16, width: 22, height: 22 }}
+        style={{ background: "#fff", boxShadow: "0 0 0 1.5px color-mix(in srgb, var(--bg) 90%, transparent)", right: inset, bottom: inset, width: BOLT, height: BOLT }}
         onMouseEnter={show} onMouseLeave={() => setAnchor(null)}>
-        <svg width={19} height={19} viewBox="0 0 24 24" fill={color}><path d="M13 2 3 14h7l-1 8 11-12h-7l1-8z" /></svg>
+        <svg width={17} height={17} viewBox="0 0 24 24" fill={color}><path d="M13 2 3 14h7l-1 8 11-12h-7l1-8z" /></svg>
       </span>
       {anchor && createPortal(
         <span className="fixed -translate-x-1/2 -translate-y-full pointer-events-none"

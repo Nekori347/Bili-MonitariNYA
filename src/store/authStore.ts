@@ -47,10 +47,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ status: "guest", account: null });
       return;
     }
-    useSettingsStore.getState().updateGlobal({ primaryAccountMid: account.mid });
+    // Only auto-bind when the user has not picked a primary account themselves.
+    if (useSettingsStore.getState().global.primaryAccountMid == null) {
+      useSettingsStore.getState().updateGlobal({ primaryAccountMid: account.mid });
+    }
     set({ status: "loggedIn", account });
   },
 
+  /** Returns the account; the caller decides whether to rebind the primary account. */
   signIn: async (cookie) => {
     await persistSession(cookie);
     const account = await resolveAccount();
@@ -59,7 +63,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ status: "guest", account: null });
       return null;
     }
-    useSettingsStore.getState().updateGlobal({ primaryAccountMid: account.mid });
     set({ status: "loggedIn", account });
     return account;
   },

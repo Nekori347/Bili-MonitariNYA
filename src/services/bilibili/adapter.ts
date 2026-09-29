@@ -24,12 +24,6 @@ import {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// Optional Bilibili cookie, injected by the app once settings load.
-let cookieProvider: (() => string | null) = () => null;
-export function setCookieProvider(fn: () => string | null) {
-  cookieProvider = fn;
-}
-
 /** Map raw Bilibili API codes to our error taxonomy. */
 function toBiliError(status: number, body: string): BiliError | null {
   if (status === 403 || status === 412 || status === 429) {
@@ -56,7 +50,9 @@ function toBiliError(status: number, body: string): BiliError | null {
 }
 
 async function getJson(url: string, params?: [string, string][]): Promise<any> {
-  const res = await biliFetch(url, { params, cookie: cookieProvider() });
+  // Cookies (device fingerprint + optional login session) are injected by the
+  // shared HTTP layer, so every Bilibili call carries them automatically.
+  const res = await biliFetch(url, { params });
   const err = toBiliError(res.status, res.body);
   if (err) throw err;
   return JSON.parse(res.body);
@@ -83,7 +79,7 @@ export const BilibiliAdapter = {
    */
   async getNavInfo(): Promise<{ isLogin: boolean; mid: number; name: string; face: string } | null> {
     try {
-      const res = await biliFetch(ENDPOINTS.nav, { cookie: cookieProvider() });
+      const res = await biliFetch(ENDPOINTS.nav);
       const raw = JSON.parse(res.body);
       const d = raw?.data;
       if (!d) return null;
@@ -113,9 +109,10 @@ export const BilibiliAdapter = {
   },
 
   async getUserProfile(mid: number): Promise<UserProfile> {
-    // 1) card endpoint — authoritative source for the custom space banner (data.space.l_img).
+    // 1) card endpoint — data.space.l_img is the custom space banner for users
+    //    who set one (verified against 影视飓风 / 罗翔说刑法).
     let cardProfile: Partial<UserProfile> = {};
-    let cardBanner: string | undefined;
+    let cardImages: BannerCandidates = {};
     try {
       const cardRaw = await getJson(ENDPOINTS.card, [
         ["mid", String(mid)],
@@ -126,19 +123,25 @@ export const BilibiliAdapter = {
       }
       cardProfile = normalizeCardProfile(cardRaw, mid);
       const space = cardRaw?.data?.space ?? {};
-      cardBanner = space.l_img || space.s_img || undefined;
+      cardImages = { lImg: space.l_img, sImg: space.s_img };
     } catch (e) {
       if (e instanceof BiliError && e.type === "not_found") throw e;
     }
 
-    // 2) acc/info — retried (risk-controlled); carries fans_medal + fallback top_photo.
+    // 2) acc/info — retried (risk-controlled); carries fans_medal + top_photo(_v2).
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
         const params = await signWbi({ mid, token: "", platform: "web", web_location: "1550101" });
         const raw = await getJson(ENDPOINTS.spaceInfo, params);
         if (raw?.code === -404 || !raw?.data) break;
         const p = normalizeProfile(raw, mid);
-        if (cardBanner) p.topPhoto = cardBanner; // custom space banner wins over top_photo
+        p.topPhoto = pickBanner({
+          ...cardImages,
+          // What the space page itself renders (fresh-space picks this first).
+          l200h: raw?.data?.top_photo_v2?.l_200h_img,
+          topPhoto: p.topPhoto,
+        });
+        logBanner(mid, p.topPhoto);
         return { ...p, ...cardProfile } as UserProfile;
       } catch (e) {
         if (e instanceof BiliError && e.type === "not_found") throw e;
@@ -149,7 +152,9 @@ export const BilibiliAdapter = {
 
     // 3) card-only fallback (no fans_medal).
     if (Object.keys(cardProfile).length > 0) {
-      return { ...(cardProfile as UserProfile), topPhoto: cardBanner ?? cardProfile.topPhoto };
+      const banner = pickBanner(cardImages) ?? cardProfile.topPhoto;
+      logBanner(mid, banner);
+      return { ...(cardProfile as UserProfile), topPhoto: banner };
     }
     throw new BiliError("network", "获取用户资料失败");
   },
@@ -252,20 +257,37 @@ export const BilibiliAdapter = {
   },
 
   async getDynamicDecoration(mid: number): Promise<DynamicDecoration | null> {
-    // The dynamic feed endpoint is aggressively risk-controlled; retry a few
-    // times with a pause, then degrade to null (feature hidden).
-    for (let attempt = 0; attempt < 4; attempt++) {
+    // The dynamic feed endpoint is aggressively risk-controlled: two tries with
+    // a pause, then degrade to null (feature hidden). No further fallbacks.
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const raw = await getJson(ENDPOINTS.dynamicSpace, [
-          ["host_mid", String(mid)],
-          ["offset", ""],
-          ["timezone_offset", "-480"],
-        ]);
-        return normalizeDecoration(raw);
-      } catch (e) {
-        if (!(e instanceof BiliError && (e.type === "rate_limit" || e.type === "network"))) return null;
-        if (attempt < 3) await new Promise((r) => setTimeout(r, 10_000));
+        // WBI signing is required: without it the endpoint answers
+        // HTTP 200 / code -352 (risk control) and returns zero items.
+        const params = await signWbi({
+          host_mid: mid,
+          timezone_offset: -480,
+          web_location: "333.1387",
+        });
+        const res = await biliFetch(ENDPOINTS.dynamicSpace, { params });
+        const raw = JSON.parse(res.body);
+        const items = raw?.data?.items ?? [];
+        const decorated = items.filter((it: any) => {
+          const a = it?.modules?.module_author;
+          return a?.decorate ?? a?.decoration_card;
+        }).length;
+        const result = normalizeDecoration(raw);
+        if (import.meta.env.DEV) {
+          console.info(
+            `[decoration] mid=${mid} HTTP ${res.status} code ${raw?.code} items=${items.length} withDecorate=${decorated} -> ${result ? "ok" : "null"}`,
+          );
+        }
+        if (result) return result;
+        // 200 + no decorate on any of the scanned items: nothing to show.
+        if (res.status === 200 && raw?.code === 0) return null;
+      } catch {
+        /* fall through to retry */
       }
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 10_000));
     }
     return null;
   },
@@ -288,6 +310,42 @@ function normalizeSeriesList(raw: any): VideoSummary[] {
     });
   }
   return out;
+}
+
+interface BannerCandidates {
+  lImg?: string;
+  sImg?: string;
+  /** top_photo_v2.l_200h_img — the image the space page itself renders. */
+  l200h?: string;
+  topPhoto?: string;
+}
+
+/** Bilibili's stock space banners, served when a UP has not set a custom one. */
+const DEFAULT_BANNERS = [
+  "cb1c3ef50e22b6096fde67febe863494caefebad",
+  "0977767b2e79d8ad0a36a731068a83d7/1sz3p8w2Sk",
+  "LRjqHhi0wL",
+];
+
+function isDefaultBanner(url: string): boolean {
+  return DEFAULT_BANNERS.some((marker) => url.includes(marker));
+}
+
+/**
+ * Pick the most "real" banner we can get. Prefers the card endpoint's custom
+ * space banner, but skips Bilibili's stock artwork when a better candidate
+ * exists (anonymous requests only ever see the stock image for some UPs).
+ */
+function pickBanner(c: BannerCandidates): string | undefined {
+  const list = [c.lImg, c.sImg, c.l200h, c.topPhoto].filter((u): u is string => !!u);
+  if (list.length === 0) return undefined;
+  return list.find((u) => !isDefaultBanner(u)) ?? list[0];
+}
+
+/** Dev-only one-liner so the banner source is verifiable without log spam. */
+function logBanner(mid: number, url: string | undefined) {
+  if (!import.meta.env.DEV) return;
+  console.info(`[banner] mid=${mid} ${url ?? "(none)"}${url && isDefaultBanner(url) ? "  <-- B站默认图" : ""}`);
 }
 
 /** Convenience: run a bounded set of tasks through the shared limiter. */

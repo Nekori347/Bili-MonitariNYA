@@ -204,15 +204,20 @@ export function normalizeDecoration(raw: any): DynamicDecoration | null {
     if (!dec || typeof dec !== "object" || Object.keys(dec).length === 0) continue;
     const fan = dec.fan ?? {};
     const cardUrl = dec.card_url || dec.big_card_url || dec.image_enhance;
-    if (!cardUrl && !dec.name && !fan.num_str) continue;
+    // `num_desc` is the zero-padded display number ("005637"); `num_str` is
+    // the older field name and is usually absent on current responses.
+    const fanText = fan.num_desc || fan.num_str || (fan.number != null ? String(fan.number) : "");
+    if (!cardUrl && !dec.name && !fanText) continue;
+    const colors = fan.color_format?.colors;
     return {
       id: dec.id != null ? Number(dec.id) : undefined,
       name: dec.name ? String(dec.name) : undefined,
       cardUrl: cardUrl ? String(cardUrl) : undefined,
       jumpUrl: dec.jump_url ? String(dec.jump_url) : undefined,
       fanNumber: fan.number != null ? Number(fan.number) : undefined,
-      fanNumberText: fan.num_str ? String(fan.num_str) : undefined,
-      color: fan.color ? String(fan.color) : undefined,
+      fanNumberText: fanText ? String(fanText) : undefined,
+      color: (Array.isArray(colors) && colors[0] ? String(colors[0]).slice(0, 7) : undefined)
+        || (fan.color ? String(fan.color) : undefined),
     };
   }
   return null;

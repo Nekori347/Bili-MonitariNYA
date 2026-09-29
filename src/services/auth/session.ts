@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { setCookieProvider } from "../bilibili/adapter";
+import { setSessionCookie } from "../bilibili/client";
 
 /**
  * Session cookie holder.
@@ -10,7 +10,7 @@ import { setCookieProvider } from "../bilibili/adapter";
  */
 let cookie: string | null = null;
 
-setCookieProvider(() => cookie);
+setSessionCookie(null);
 
 export function getCookie(): string | null {
   return cookie;
@@ -57,6 +57,7 @@ export function cookiesFromUrl(url: string): string {
 /** Store the session (memory + encrypted on-disk copy). */
 export async function persistSession(next: string): Promise<void> {
   cookie = next;
+  setSessionCookie(next);
   if (isTauri()) {
     try {
       await invoke("save_credential", { secret: next });
@@ -73,6 +74,7 @@ export async function restoreSession(): Promise<boolean> {
     const stored = await invoke<string | null>("load_credential");
     if (stored) {
       cookie = stored;
+      setSessionCookie(stored);
       return true;
     }
   } catch {
@@ -83,6 +85,7 @@ export async function restoreSession(): Promise<boolean> {
 
 export async function clearSession(): Promise<void> {
   cookie = null;
+  setSessionCookie(null);
   if (isTauri()) {
     try {
       await invoke("delete_credential");

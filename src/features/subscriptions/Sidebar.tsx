@@ -8,39 +8,37 @@ import { Avatar } from "./Avatar";
 import { useUIStore } from "../../store/uiStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { spaceUrl } from "../../services/bilibili/endpoints";
-import { ChevronLeft, ExternalLink, Gear, Plus, Trash, XIcon } from "../../components/ui/Icons";
+import { ChevronLeft, ChevronRight, ExternalLink, Gear, Plus, Trash, XIcon } from "../../components/ui/Icons";
+
+const MIN_W = 140;
+const MAX_W = 260;
+export const MINI_W = 40;
 
 interface Props {
   subs: Subscription[];
   loading: boolean;
+  collapsed: boolean;
 }
 
-export function Sidebar({ subs, loading }: Props) {
-  const selectedMid = useUIStore((s) => s.selectedMid);
-  const setSelectedMid = useUIStore((s) => s.setSelectedMid);
-  const setAddOpen = useUIStore((s) => s.setAddOpen);
-  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
-  const openUserSettings = useUIStore((s) => s.openUserSettings);
-  const updateSub = useUpdateSubscription();
-  const removeSub = useRemoveSubscription();
+/**
+ * Left column: subscription list (expanded) or avatar strip (collapsed),
+ * always followed by the drag/toggle Rail that sits on the boundary.
+ */
+export function Sidebar({ subs, loading, collapsed }: Props) {
+  const faces = useFaces(subs);
   const sidebarWidth = useSettingsStore((s) => s.global.sidebarWidth);
   const updateGlobal = useSettingsStore((s) => s.updateGlobal);
-  const qc = useQueryClient();
-
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const [dragging, setDragging] = useState(false);
-  const [deleteMode, setDeleteMode] = useState(false);
-  const [confirmMid, setConfirmMid] = useState<number | null>(null);
-  const [pending, setPending] = useState<Set<number>>(new Set());
-  const faces = useFaces(subs);
 
   const startDrag = (e: React.MouseEvent) => {
+    if (collapsed) return;
     e.preventDefault();
     const startX = e.clientX;
     const startW = sidebarWidth;
     setDragging(true);
     const onMove = (ev: MouseEvent) => {
-      const w = Math.min(260, Math.max(140, startW + ev.clientX - startX));
-      updateGlobal({ sidebarWidth: w });
+      updateGlobal({ sidebarWidth: Math.min(MAX_W, Math.max(MIN_W, startW + ev.clientX - startX)) });
     };
     const onUp = () => {
       setDragging(false);
@@ -51,16 +49,102 @@ export function Sidebar({ subs, loading }: Props) {
     document.addEventListener("mouseup", onUp);
   };
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (confirmMid != null) setConfirmMid(null);
-        else if (deleteMode) exitDeleteMode();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
+  return (
+    <div className="flex flex-none min-h-0">
+      {collapsed ? (
+        <MiniList subs={subs} faces={faces} />
+      ) : (
+        <FullList subs={subs} loading={loading} faces={faces} width={sidebarWidth} />
+      )}
+
+      <div
+        className={`side-rail${collapsed ? " is-collapsed" : ""}${dragging ? " dragging" : ""}`}
+        onMouseDown={startDrag}
+      >
+        <span className="side-rail-line" />
+        <button
+          className="side-rail-btn"
+          title={collapsed ? "展开侧栏" : "折叠侧栏"}
+          onClick={toggleSidebar}
+        >
+          {collapsed ? <ChevronLeft size={11} /> : <ChevronRight size={11} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Collapsed: avatar strip only (avatar + refresh state + new-post dot)
+ * ------------------------------------------------------------------ */
+
+function MiniList({ subs, faces }: { subs: Subscription[]; faces: Record<number, string> }) {
+  const selectedMid = useUIStore((s) => s.selectedMid);
+  const setSelectedMid = useUIStore((s) => s.setSelectedMid);
+
+  return (
+    <div className="mini-side" style={{ width: MINI_W }}>
+      <div className="mini-list">
+        {subs.map((sub) => (
+          <div key={sub.mid} className="mini-item">
+            <button
+              className="mini-btn"
+              style={selectedMid === sub.mid ? { borderColor: "var(--accent)" } : undefined}
+              onClick={() => setSelectedMid(sub.mid)}
+            >
+              <Avatar mid={sub.mid} face={faces[sub.mid]} name={sub.name} size={24} />
+              <span
+                className="mini-dot-refresh"
+                style={{ background: sub.enabled ? "#22a06b" : "var(--text-3)" }}
+              />
+              {sub.hasUnreadUpdate && <span className="mini-dot-new" />}
+            </button>
+
+            {/* App-rendered tooltip (no HTML title attribute) */}
+            <div className="mini-tip" role="tooltip">
+              {sub.remark ? (
+                <>
+                  <div className="mini-tip-1">{sub.remark}</div>
+                  <div className="mini-tip-2">{sub.name}</div>
+                </>
+              ) : (
+                <div className="mini-tip-1">{sub.name || `UID ${sub.mid}`}</div>
+              )}
+              <div className="mini-tip-3">UID {sub.mid}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Expanded: full subscription rows (unchanged behaviour)
+ * ------------------------------------------------------------------ */
+
+function FullList({
+  subs,
+  loading,
+  faces,
+  width,
+}: {
+  subs: Subscription[];
+  loading: boolean;
+  faces: Record<number, string>;
+  width: number;
+}) {
+  const selectedMid = useUIStore((s) => s.selectedMid);
+  const setSelectedMid = useUIStore((s) => s.setSelectedMid);
+  const setAddOpen = useUIStore((s) => s.setAddOpen);
+  const openUserSettings = useUIStore((s) => s.openUserSettings);
+  const updateSub = useUpdateSubscription();
+  const removeSub = useRemoveSubscription();
+  const qc = useQueryClient();
+
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [confirmMid, setConfirmMid] = useState<number | null>(null);
+  const [pending, setPending] = useState<Set<number>>(new Set());
 
   const exitDeleteMode = () => {
     setDeleteMode(false);
@@ -82,13 +166,20 @@ export function Sidebar({ subs, loading }: Props) {
     });
   };
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (confirmMid != null) setConfirmMid(null);
+      else if (deleteMode) exitDeleteMode();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   return (
-    <aside className="flex-none flex flex-col border-r relative" style={{ width: sidebarWidth, borderColor: "var(--line)" }}>
-      <div className="flex items-center justify-between px-3 py-2">
+    <aside className="flex-none flex flex-col min-h-0" style={{ width }}>
+      <div className="flex items-center px-3 py-2">
         <span className="text-[12px] font-medium pl-1" style={{ color: "var(--text-2)" }}>订阅列表</span>
-        <button className="titlebar-btn" style={{ width: 24, height: 24 }} title="折叠侧栏" onClick={toggleSidebar}>
-          <ChevronLeft size={14} />
-        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-2 flex flex-col gap-0.5" onClick={() => confirmMid != null && setConfirmMid(null)}>
@@ -139,7 +230,6 @@ export function Sidebar({ subs, loading }: Props) {
                       e.stopPropagation();
                       const next = !sub.enabled;
                       updateSub.mutate({ mid: sub.mid, patch: { enabled: next } });
-                      // Re-enabling: refresh this UP immediately (silently, cache stays visible).
                       if (next) {
                         void qc.invalidateQueries({ queryKey: ["profile", sub.mid] });
                         void qc.invalidateQueries({ queryKey: ["stats", sub.mid] });
@@ -187,7 +277,6 @@ export function Sidebar({ subs, loading }: Props) {
           </button>
         </div>
       )}
-      <div className={`resize-handle${dragging ? " dragging" : ""}`} onMouseDown={startDrag} />
     </aside>
   );
 }
