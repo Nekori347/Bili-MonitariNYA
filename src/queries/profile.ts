@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { BilibiliAdapter } from "../services/bilibili/adapter";
 import type { DynamicDecoration, UserProfile, UserStats } from "../services/bilibili/types";
 import { useDelayedReady } from "../utils/useDelayedReady";
+import { profileInterval } from "../utils/refresh";
+import { useUIStore } from "../store/uiStore";
 
 export const profileKeys = {
   profile: (mid: number) => ["profile", mid] as const,
@@ -15,11 +17,12 @@ const STATS_STALE = 10 * 60 * 1000;
 export function useUserProfile(mid: number, isForeground: boolean) {
   // Defer so the video-list request goes out first (avoids anti-bot burst).
   const ready = useDelayedReady(3000);
+  const visible = useUIStore((s) => s.isWindowVisible);
   return useQuery({
     queryKey: profileKeys.profile(mid),
     queryFn: () => BilibiliAdapter.getUserProfile(mid),
     staleTime: PROFILE_STALE,
-    refetchInterval: isForeground ? 15 * 60 * 1000 : 30 * 60 * 1000,
+    refetchInterval: profileInterval(visible ? "foreground" : "tray", isForeground),
     retry: 2,
     enabled: ready,
   });
@@ -27,11 +30,12 @@ export function useUserProfile(mid: number, isForeground: boolean) {
 
 export function useUserStats(mid: number, isForeground: boolean) {
   const ready = useDelayedReady(3000);
+  const visible = useUIStore((s) => s.isWindowVisible);
   return useQuery({
     queryKey: profileKeys.stats(mid),
     queryFn: () => BilibiliAdapter.getUserStats(mid),
     staleTime: STATS_STALE,
-    refetchInterval: isForeground ? 15 * 60 * 1000 : 30 * 60 * 1000,
+    refetchInterval: profileInterval(visible ? "foreground" : "tray", isForeground),
     retry: 1,
     enabled: ready,
   });

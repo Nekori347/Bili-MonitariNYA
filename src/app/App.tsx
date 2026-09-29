@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Providers } from "./providers";
 import { useSubscriptions } from "../queries/subscriptions";
 import { useUIStore } from "../store/uiStore";
@@ -9,7 +10,14 @@ import { ProfileCard } from "../features/profile-card/ProfileCard";
 import { VideoList } from "../features/video-list/VideoList";
 import { AddSubscriptionModal } from "../features/subscriptions/AddSubscriptionModal";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
-import { applyWindowEffects, setAlwaysOnTop } from "../utils/window";
+import {
+  applyWindowEffects,
+  setAlwaysOnTop,
+  setCloseBehavior,
+  onWindowHidden,
+  onWindowShown,
+  onTrayRefresh,
+} from "../utils/window";
 
 function useThemeEffect() {
   const theme = useSettingsStore((s) => s.global.theme);
@@ -40,6 +48,7 @@ function useThemeEffect() {
 function useWindowStateEffect() {
   const loaded = useSettingsStore((s) => s.loaded);
   const alwaysOnTop = useSettingsStore((s) => s.global.alwaysOnTop);
+  const closeToTray = useSettingsStore((s) => s.global.closeToTray);
 
   useEffect(() => {
     void applyWindowEffects();
@@ -48,11 +57,82 @@ function useWindowStateEffect() {
   useEffect(() => {
     if (loaded) void setAlwaysOnTop(alwaysOnTop);
   }, [loaded, alwaysOnTop]);
+
+  // Sync the close-button behavior to the Rust layer whenever it changes.
+  useEffect(() => {
+    if (loaded) void setCloseBehavior(closeToTray);
+  }, [loaded, closeToTray]);
+}
+
+/** React to tray / window-visibility events from the Rust layer. */
+function useTrayEvents() {
+  const setWindowVisible = useUIStore((s) => s.setWindowVisible);
+  const showToast = useUIStore((s) => s.showToast);
+  const updateGlobal = useSettingsStore((s) => s.updateGlobal);
+  const trayToastShown = useSettingsStore((s) => s.global.trayToastShown);
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    const refreshCurrentUp = () => {
+      const mid = useUIStore.getState().selectedMid;
+      if (mid != null) {
+        void qc.invalidateQueries({ queryKey: ["profile", mid] });
+        void qc.invalidateQueries({ queryKey: ["stats", mid] });
+        void qc.invalidateQueries({ queryKey: ["videos", mid] });
+        void qc.invalidateQueries({ queryKey: ["online"] });
+      }
+    };
+
+    const un1 = onWindowHidden(() => {
+      setWindowVisible(false);
+      if (!useSettingsStore.getState().global.trayToastShown) {
+        showToast("Bili Monitor 仍在后台运行，可从系统托盘重新打开。");
+        updateGlobal({ trayToastShown: true });
+      }
+    });
+    const un2 = onWindowShown(() => {
+      setWindowVisible(true);
+      refreshCurrentUp();
+    });
+    const un3 = onTrayRefresh(() => {
+      refreshCurrentUp();
+    });
+
+    return () => {
+      void un1.then((f) => f());
+      void un2.then((f) => f());
+      void un3.then((f) => f());
+    };
+  }, [setWindowVisible, showToast, updateGlobal, trayToastShown, qc]);
+}
+
+function ToastHost() {
+  const toast = useUIStore((s) => s.toast);
+  const clearToast = useUIStore((s) => s.clearToast);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => clearToast(), 4000);
+    return () => clearTimeout(t);
+  }, [toast, clearToast]);
+
+  if (!toast) return null;
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60]">
+      <div
+        className="px-4 py-2.5 rounded-lg text-[13px]"
+        style={{ background: "var(--surface)", border: "1px solid var(--line)", boxShadow: "var(--shadow)", color: "var(--text)" }}
+      >
+        {toast}
+      </div>
+    </div>
+  );
 }
 
 function Main() {
   useThemeEffect();
   useWindowStateEffect();
+  useTrayEvents();
   const { data: subs, isLoading } = useSubscriptions();
   const selectedMid = useUIStore((s) => s.selectedMid);
   const setSelectedMid = useUIStore((s) => s.setSelectedMid);
@@ -90,6 +170,7 @@ function Main() {
       </div>
       {addOpen && <AddSubscriptionModal />}
       {settingsOpen && <SettingsPanel />}
+      <ToastHost />
     </div>
   );
 }

@@ -2,6 +2,8 @@ import { useQuery, useQueries } from "@tanstack/react-query";
 import { BilibiliAdapter, limited } from "../services/bilibili/adapter";
 import type { OnlineStats, VideoSummary } from "../services/bilibili/types";
 import { insertSnapshot } from "../services/database/snapshots";
+import { onlineInterval, videoStatsInterval } from "../utils/refresh";
+import { useUIStore } from "../store/uiStore";
 
 export interface VideoItem extends VideoSummary {
   view: number | null;
@@ -28,11 +30,14 @@ interface DetailResult {
 
 /** Fetch the recent X videos for a UP and enrich each with its detail stats. */
 export function useVideos(mid: number, limit: number, isForeground: boolean): VideoItem[] | undefined {
+  const visible = useUIStore((s) => s.isWindowVisible);
+  const mode = visible ? "foreground" : "tray";
+
   const listQuery = useQuery({
     queryKey: videoKeys.list(mid, limit),
     queryFn: () => BilibiliAdapter.getUserVideos(mid, limit),
     staleTime: LIST_STALE,
-    refetchInterval: isForeground ? 5 * 60 * 1000 : 15 * 60 * 1000,
+    refetchInterval: videoStatsInterval(mode, isForeground),
     retry: 2,
   });
 
@@ -55,7 +60,7 @@ export function useVideos(mid: number, limit: number, isForeground: boolean): Vi
         return { view: detail.view, like: detail.like, coin: detail.coin, cid: detail.cid };
       },
       staleTime: LIST_STALE,
-      refetchInterval: isForeground ? 5 * 60 * 1000 : 15 * 60 * 1000,
+      refetchInterval: videoStatsInterval(mode, isForeground),
       retry: 1,
     })),
   });
@@ -64,13 +69,14 @@ export function useVideos(mid: number, limit: number, isForeground: boolean): Vi
   const onlineQueries = useQueries({
     queries: summaries.map((s: VideoSummary, i: number) => {
       const cid = detailQueries[i]?.data?.cid ?? 0;
+      const interval = onlineInterval(mode, isForeground);
       return {
         queryKey: ["online", s.bvid, cid] as const,
         queryFn: () => BilibiliAdapter.getVideoOnline(s.bvid, cid).catch(() => null),
         staleTime: ONLINE_STALE,
-        refetchInterval: isForeground && cid > 0 ? 60 * 1000 : false,
+        refetchInterval: interval && cid > 0 ? interval : false,
         retry: 0,
-        enabled: isForeground && cid > 0,
+        enabled: isForeground && cid > 0 && mode === "foreground",
       };
     }),
   });

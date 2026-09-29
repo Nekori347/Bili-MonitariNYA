@@ -33,6 +33,8 @@ export interface GlobalSettings {
   opacity: number; // 60..100
   alwaysOnTop: boolean;
   cookie: string;
+  closeToTray: boolean; // 关闭按钮：隐藏到托盘 (true) 或直接退出 (false)
+  trayToastShown: boolean; // 是否已显示过“后台运行”提示
   fields: FieldVisibility;
 }
 
@@ -74,6 +76,8 @@ export const DEFAULT_SETTINGS: GlobalSettings = {
   opacity: 92,
   alwaysOnTop: false,
   cookie: "",
+  closeToTray: true,
+  trayToastShown: false,
   fields: { ...DEFAULT_FIELDS },
 };
 

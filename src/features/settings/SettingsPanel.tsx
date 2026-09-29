@@ -144,6 +144,15 @@ function GlobalSettings() {
             }}
           />
         </Row>
+        <Row label="关闭按钮行为">
+          <select
+            value={global.closeToTray ? "tray" : "quit"}
+            onChange={(e) => updateGlobal({ closeToTray: e.target.value === "tray" })}
+          >
+            <option value="tray">关闭到系统托盘</option>
+            <option value="quit">直接退出程序</option>
+          </select>
+        </Row>
       </Section>
 
       <Section title="字段显示（全局默认）">

@@ -11,6 +11,8 @@ interface UIState {
   settingsOpen: boolean;
   settingsTab: "global" | "perUser";
   addOpen: boolean;
+  isWindowVisible: boolean;
+  toast: string | null;
 
   setSelectedMid: (mid: number | null) => void;
   setSort: (field: SortField, direction: SortDirection) => void;
@@ -20,6 +22,9 @@ interface UIState {
   setSettingsTab: (tab: "global" | "perUser") => void;
   openUserSettings: () => void;
   setAddOpen: (open: boolean) => void;
+  setWindowVisible: (visible: boolean) => void;
+  showToast: (msg: string) => void;
+  clearToast: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -30,6 +35,8 @@ export const useUIStore = create<UIState>((set) => ({
   settingsOpen: false,
   settingsTab: "global",
   addOpen: false,
+  isWindowVisible: true,
+  toast: null,
 
   setSelectedMid: (mid) => set({ selectedMid: mid }),
   setSort: (sortField, sortDirection) => set({ sortField, sortDirection }),
@@ -40,4 +47,7 @@ export const useUIStore = create<UIState>((set) => ({
   setSettingsTab: (tab) => set({ settingsTab: tab }),
   openUserSettings: () => set({ settingsOpen: true, settingsTab: "perUser" }),
   setAddOpen: (open) => set({ addOpen: open }),
+  setWindowVisible: (visible) => set({ isWindowVisible: visible }),
+  showToast: (msg) => set({ toast: msg }),
+  clearToast: () => set({ toast: null }),
 }));
