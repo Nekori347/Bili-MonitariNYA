@@ -7,6 +7,7 @@ export interface FieldVisibility {
   uid: boolean;
   sign: boolean;
   level: boolean;
+  sex: boolean;
   vip: boolean;
   official: boolean;
   pendant: boolean;
@@ -32,9 +33,12 @@ export interface GlobalSettings {
   theme: ThemeMode;
   opacity: number; // 60..100
   alwaysOnTop: boolean;
-  cookie: string;
   closeToTray: boolean; // 关闭按钮：隐藏到托盘 (true) 或直接退出 (false)
   trayToastShown: boolean; // 是否已显示过“后台运行”提示
+  primaryAccountMid: number | null; // 主账号（仅用于显示“投稿”入口）
+  highlightField: "off" | "view" | "like" | "coin" | "online"; // 固定蓝色高亮字段
+  growthPeriod: "day" | "week" | "month"; // 增长周期
+  sidebarWidth: number; // 展开 Sidebar 宽度（140-260）
   fields: FieldVisibility;
 }
 
@@ -50,6 +54,7 @@ export const DEFAULT_FIELDS: FieldVisibility = {
   uid: true,
   sign: true,
   level: true,
+  sex: true,
   vip: true,
   official: true,
   pendant: true,
@@ -75,9 +80,12 @@ export const DEFAULT_SETTINGS: GlobalSettings = {
   theme: "system",
   opacity: 92,
   alwaysOnTop: false,
-  cookie: "",
   closeToTray: true,
   trayToastShown: false,
+  primaryAccountMid: null,
+  highlightField: "off",
+  growthPeriod: "day",
+  sidebarWidth: 208,
   fields: { ...DEFAULT_FIELDS },
 };
 
@@ -88,6 +96,7 @@ export const FIELD_LABELS: Record<keyof FieldVisibility, string> = {
   uid: "UID",
   sign: "简介",
   level: "等级",
+  sex: "性别",
   vip: "大会员",
   official: "官方认证",
   pendant: "头像挂件",

@@ -77,25 +77,81 @@ export const BilibiliAdapter = {
     return { mid: Number(numMatch[1]) };
   },
 
-  async getUserProfile(mid: number): Promise<UserProfile> {
+  /**
+   * Current login state (nav endpoint). Bilibili answers -101 when logged out
+   * but still returns a data object, so we read `data.isLogin` rather than code.
+   */
+  async getNavInfo(): Promise<{ isLogin: boolean; mid: number; name: string; face: string } | null> {
     try {
-      const params = await signWbi({ mid, token: "", platform: "web", web_location: "1550101" });
-      const raw = await getJson(ENDPOINTS.spaceInfo, params);
-      if (raw?.code === -404 || !raw?.data) throw new BiliError("not_found", "用户不存在", raw?.code);
-      return normalizeProfile(raw, mid);
+      const res = await biliFetch(ENDPOINTS.nav, { cookie: cookieProvider() });
+      const raw = JSON.parse(res.body);
+      const d = raw?.data;
+      if (!d) return null;
+      const mid = Number(d.mid ?? 0);
+      return {
+        isLogin: Boolean(d.isLogin) && mid > 0,
+        mid,
+        name: String(d.uname ?? ""),
+        face: String(d.face ?? ""),
+      };
+    } catch {
+      return null;
+    }
+  },
+
+  /** Minimal existence check for fast "add subscription" (card endpoint only). */
+  async getBriefUser(mid: number): Promise<{ mid: number; name: string; face: string }> {
+    const raw = await getJson(ENDPOINTS.card, [
+      ["mid", String(mid)],
+      ["photo", "true"],
+    ]);
+    if (raw?.code === -404 || !raw?.data?.card) {
+      throw new BiliError("not_found", "未找到该 UP 主", raw?.code);
+    }
+    const c = raw.data.card;
+    return { mid: Number(c.mid ?? mid), name: String(c.name ?? ""), face: String(c.face ?? "") };
+  },
+
+  async getUserProfile(mid: number): Promise<UserProfile> {
+    // 1) card endpoint — authoritative source for the custom space banner (data.space.l_img).
+    let cardProfile: Partial<UserProfile> = {};
+    let cardBanner: string | undefined;
+    try {
+      const cardRaw = await getJson(ENDPOINTS.card, [
+        ["mid", String(mid)],
+        ["photo", "true"],
+      ]);
+      if (cardRaw?.code === -404 || (!cardRaw?.data?.card && !cardRaw?.data)) {
+        throw new BiliError("not_found", "用户不存在", cardRaw?.code);
+      }
+      cardProfile = normalizeCardProfile(cardRaw, mid);
+      const space = cardRaw?.data?.space ?? {};
+      cardBanner = space.l_img || space.s_img || undefined;
     } catch (e) {
       if (e instanceof BiliError && e.type === "not_found") throw e;
-      // Fallback to the public card endpoint (may lack WBI-only fields).
+    }
+
+    // 2) acc/info — retried (risk-controlled); carries fans_medal + fallback top_photo.
+    for (let attempt = 0; attempt < 4; attempt++) {
       try {
-        const raw = await getJson(ENDPOINTS.card, [
-          ["mid", String(mid)],
-          ["photo", "true"],
-        ]);
-        return { ...normalizeProfile(raw, mid), ...normalizeCardProfile(raw, mid) } as UserProfile;
-      } catch {
-        throw e;
+        const params = await signWbi({ mid, token: "", platform: "web", web_location: "1550101" });
+        const raw = await getJson(ENDPOINTS.spaceInfo, params);
+        if (raw?.code === -404 || !raw?.data) break;
+        const p = normalizeProfile(raw, mid);
+        if (cardBanner) p.topPhoto = cardBanner; // custom space banner wins over top_photo
+        return { ...p, ...cardProfile } as UserProfile;
+      } catch (e) {
+        if (e instanceof BiliError && e.type === "not_found") throw e;
+        if (!(e instanceof BiliError && (e.type === "rate_limit" || e.type === "wbi"))) break;
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 12_000));
       }
     }
+
+    // 3) card-only fallback (no fans_medal).
+    if (Object.keys(cardProfile).length > 0) {
+      return { ...(cardProfile as UserProfile), topPhoto: cardBanner ?? cardProfile.topPhoto };
+    }
+    throw new BiliError("network", "获取用户资料失败");
   },
 
   async getUserStats(mid: number): Promise<UserStats> {
@@ -196,16 +252,22 @@ export const BilibiliAdapter = {
   },
 
   async getDynamicDecoration(mid: number): Promise<DynamicDecoration | null> {
-    try {
-      const raw = await getJson(ENDPOINTS.dynamicSpace, [
-        ["host_mid", String(mid)],
-        ["offset", ""],
-        ["timezone_offset", "-480"],
-      ]);
-      return normalizeDecoration(raw);
-    } catch {
-      return null;
+    // The dynamic feed endpoint is aggressively risk-controlled; retry a few
+    // times with a pause, then degrade to null (feature hidden).
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const raw = await getJson(ENDPOINTS.dynamicSpace, [
+          ["host_mid", String(mid)],
+          ["offset", ""],
+          ["timezone_offset", "-480"],
+        ]);
+        return normalizeDecoration(raw);
+      } catch (e) {
+        if (!(e instanceof BiliError && (e.type === "rate_limit" || e.type === "network"))) return null;
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 10_000));
+      }
     }
+    return null;
   },
 };
 

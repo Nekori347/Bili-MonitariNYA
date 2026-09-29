@@ -1,8 +1,28 @@
-import { getCurrentWindow, Effect } from "@tauri-apps/api/window";
+import { getCurrentWindow, Effect, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export const appWindow = getCurrentWindow();
+
+/**
+ * Grow/shrink the window on its left edge by `delta` CSS px, keeping the
+ * visible panel anchored on screen. Used when the sidebar collapses: the
+ * bookmark rail lives in a transparent strip added to the left.
+ */
+export async function adjustWindowWidth(delta: number): Promise<void> {
+  if (delta === 0) return;
+  try {
+    const scale = await appWindow.scaleFactor();
+    const size = await appWindow.innerSize();
+    const pos = await appWindow.outerPosition();
+    const d = Math.round(delta * scale);
+    const width = Math.max(360, size.width + d);
+    await appWindow.setSize(new LogicalSize(width / scale, size.height / scale));
+    await appWindow.setPosition(new LogicalPosition((pos.x - d) / scale, pos.y / scale));
+  } catch {
+    /* ignore — layout still works, only the panel gets narrower */
+  }
+}
 
 export async function setAlwaysOnTop(on: boolean): Promise<void> {
   try {

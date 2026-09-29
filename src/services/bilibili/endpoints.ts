@@ -29,6 +29,10 @@ export function spaceUrl(mid: number): string {
   return `${SPACE_BASE}/${mid}`;
 }
 
+export function videoSpaceUrl(mid: number): string {
+  return `${SPACE_BASE}/${mid}/video`;
+}
+
 export function videoUrl(bvid: string): string {
   return `${WEB_BASE}/video/${bvid}`;
 }

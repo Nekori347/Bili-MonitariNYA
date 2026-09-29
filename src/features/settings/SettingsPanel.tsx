@@ -4,6 +4,7 @@ import { useSubscriptions } from "../../queries/subscriptions";
 import { setAlwaysOnTop } from "../../utils/window";
 import { FIELD_LABELS, type FieldVisibility, type GlobalSettings, type ThemeMode } from "../../types/settings";
 import { useUpdateSubscription } from "../../queries/subscriptions";
+import { AccountSection } from "./AccountSection";
 
 const FIELD_GROUPS: { title: string; keys: (keyof FieldVisibility)[] }[] = [
   { title: "名片基础", keys: ["banner", "avatar", "name", "uid", "sign"] },
@@ -175,17 +176,8 @@ function GlobalSettings() {
         ))}
       </Section>
 
-      <Section title="高级（可选）">
-        <div className="text-xs mb-1.5" style={{ color: "var(--text-2)" }}>
-          B 站 Cookie：用于获取「总播放 / 获赞」等需要登录的增强字段。留空则匿名访问，不影响核心监控。
-        </div>
-        <input
-          type="password"
-          className="w-full"
-          placeholder="SESSDATA=..."
-          value={global.cookie}
-          onChange={(e) => updateGlobal({ cookie: e.target.value })}
-        />
+      <Section title="B 站账号（可选）">
+        <AccountSection />
       </Section>
     </div>
   );

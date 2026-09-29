@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { getSetting, setSetting } from "../services/database/settings";
-import { setCookieProvider } from "../services/bilibili/adapter";
 import {
   DEFAULT_SETTINGS,
   type GlobalSettings,
@@ -33,14 +32,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const g = await getSetting<GlobalSettings>(SETTINGS_KEY);
     const p = await getSetting<Record<number, PerUserSettings>>(PER_USER_KEY);
     const global = g ? { ...DEFAULT_SETTINGS, ...g, fields: { ...DEFAULT_SETTINGS.fields, ...(g.fields ?? {}) } } : { ...DEFAULT_SETTINGS };
-    setCookieProvider(() => get().global.cookie || null);
     set({ loaded: true, global, perUser: p ?? {} });
   },
 
   updateGlobal: (patch) => {
     const global = { ...get().global, ...patch };
     set({ global });
-    setCookieProvider(() => global.cookie || null);
     void setSetting(SETTINGS_KEY, global);
   },
 

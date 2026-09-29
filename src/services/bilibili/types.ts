@@ -10,13 +10,26 @@ export interface UserProfile {
   face: string;
   sign: string;
   level: number;
+  sex: string; // "男" / "女" / "保密" / ""
+  isSeniorMember: boolean; // 硬核会员 Lv6
   isVip: boolean;
+  vipType: number; // 0 无 / 1 大会员 / 2 年度大会员
   vipLabel?: string;
-  official?: { title: string; type: number; desc?: string };
+  vipLabelImg?: string; // native VIP label image (img_label_uri_hans_static)
+  vipLabelTheme?: string; // e.g. "annual_vip"
+  nicknameColor?: string;
+  official?: { title: string; type: number; role: number; desc?: string };
   topPhoto?: string;
-  pendantUrl?: string;
-  nameplateUrl?: string;
-  fansMedal?: { name: string; level: number };
+  pendantUrl?: string; // avatar frame (image_enhance preferred)
+  nameplateUrl?: string; // nameplate badge image
+  nameplateName?: string;
+  fansMedal?: {
+    name: string;
+    level: number;
+    colorStart?: string;
+    colorEnd?: string;
+    colorBorder?: string;
+  };
 }
 
 export interface UserStats {

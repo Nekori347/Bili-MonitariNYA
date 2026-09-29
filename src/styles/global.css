@@ -60,17 +60,22 @@ body {
   cursor: default;
 }
 
+.app-root {
+  position: absolute;
+  inset: 0;
+}
+
 .app-shell {
-  height: 100vh;
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--bg) calc(var(--app-opacity) * 100%), transparent);
   border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
+  border-radius: 14px;
+  overflow: clip;
   backdrop-filter: blur(30px) saturate(1.3);
   -webkit-backdrop-filter: blur(30px) saturate(1.3);
-  box-shadow: var(--shadow);
 }
 
 /* frosted card */
@@ -82,21 +87,23 @@ body {
   -webkit-backdrop-filter: blur(18px);
 }
 
-/* bilibili pink accent strip */
+/* bilibili pink accent strip — floating rounded bar inset from top edge */
 .accent-bar {
   height: 3px;
-  background: linear-gradient(90deg, var(--accent), rgba(251, 114, 153, 0.35));
+  margin: 3px 10px 0;
+  background: #fb7299;
+  border-radius: 999px;
   flex: none;
 }
 
 /* window titlebar */
 .titlebar {
-  height: 44px;
+  height: 28px;
   flex: none;
   display: flex;
   align-items: center;
-  padding: 0 8px 0 16px;
-  gap: 12px;
+  padding: 0 6px 0 12px;
+  gap: 6px;
 }
 
 .drag-region {
@@ -130,6 +137,257 @@ body {
 .titlebar-btn.close:hover {
   background: #e81123;
   color: #fff;
+}
+
+/* refresh spin animation */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+/* delete-mode wiggle */
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-2deg); }
+  75% { transform: rotate(2deg); }
+}
+.wiggle {
+  animation: wiggle 0.3s ease-in-out infinite;
+}
+
+/* delete button: morph circle -> capsule with "确认" */
+.delete-btn {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #e81123;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: width 180ms ease, border-radius 180ms ease, opacity 180ms ease;
+  flex: none;
+}
+.delete-btn.confirming {
+  width: 44px;
+  border-radius: 999px;
+}
+.delete-btn:hover {
+  filter: brightness(1.15);
+  transform: scale(1.06);
+  animation: wiggle 0.3s ease-in-out infinite;
+}
+.delete-btn svg {
+  stroke-width: 2.2;
+}
+
+/* ---- Collapsed bookmarks: transparent strip left of the glass panel ---- */
+.bm-gutter {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 134px;
+  background: transparent;
+  z-index: 30;
+  pointer-events: none;
+}
+.bm-gutter > * {
+  pointer-events: auto;
+}
+
+/* Full-height handle attached to the panel's left edge: 丨丨 < 丨丨 */
+.bm-rail {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 0;
+  background: color-mix(in srgb, var(--bg) calc(var(--app-opacity) * 62%), transparent);
+  border: 1px solid var(--line);
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+}
+.bm-grip {
+  display: flex;
+  gap: 2.5px;
+  flex: none;
+}
+.bm-grip i {
+  display: block;
+  width: 1px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--text-3);
+}
+.bm-chev {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.bm-chev:hover {
+  color: var(--accent);
+  background: var(--hover);
+}
+
+.bm-list {
+  position: absolute;
+  left: 0;
+  right: 16px;
+  top: 46px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  pointer-events: none;
+}
+.bm-item {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  flex: none;
+  pointer-events: auto;
+}
+.bm-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  height: 28px;
+  width: 28px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) calc(var(--app-opacity) * 70%), transparent);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  overflow: hidden;
+  white-space: nowrap;
+  flex: none;
+  cursor: pointer;
+  transition: width 175ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.bm-tab:hover {
+  width: 118px;
+}
+.bm-tab .bm-avatar {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+.bm-tab .bm-text {
+  flex: none;
+  width: 80px;
+  text-align: right;
+  line-height: 1.2;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 120ms ease 40ms;
+}
+.bm-tab:hover .bm-text {
+  opacity: 1;
+}
+.bm-text-1,
+.bm-text-2 {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bm-text-1 {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text);
+}
+.bm-text-2 {
+  font-size: 9px;
+  color: var(--text-3);
+}
+.bm-dot {
+  position: absolute;
+  top: 0;
+  right: 1px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #fb7299;
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--bg) 85%, transparent);
+}
+
+/* sidebar resize handle: wide transparent hitbox, rounded pink pill on hover */
+.resize-handle {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  right: -3px;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.resize-handle::after {
+  content: "";
+  width: 3px;
+  height: 46px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.resize-handle:hover::after,
+.resize-handle.dragging::after {
+  background: #fb7299;
+  box-shadow: 0 0 0 1.5px rgba(251, 114, 153, 0.28);
+}
+
+/* refresh toggle dot: small dot with a small muted hover ring */
+.refresh-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.refresh-dot:hover {
+  background: var(--hover);
+  border-radius: 999px;
+}
+.refresh-dot .dot {
+  width: 5.5px;
+  height: 5.5px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 /* scrollbars */

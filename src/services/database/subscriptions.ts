@@ -7,22 +7,55 @@ export interface Subscription {
   enabled: boolean;
   videoLimit: number;
   customSettingsJson: string | null;
+  remark?: string;
+  lastSeenLatestBvid?: string;
+  hasUnreadUpdate?: boolean;
 }
 
 export interface CustomSettings {
   videoLimit?: number;
   overrides?: Record<string, boolean>;
+  remark?: string;
+  lastSeenLatestBvid?: string;
+  hasUnreadUpdate?: boolean;
 }
 
 function mapRow(row: any): Subscription {
+  const json = row.custom_settings_json ? String(row.custom_settings_json) : null;
+  const cs = parseCustomSettings(json);
   return {
     mid: Number(row.mid),
     name: String(row.name ?? ""),
     addedAt: Number(row.added_at ?? 0),
     enabled: Number(row.enabled ?? 1) === 1,
     videoLimit: Number(row.video_limit ?? 20),
-    customSettingsJson: row.custom_settings_json ? String(row.custom_settings_json) : null,
+    customSettingsJson: json,
+    remark: cs.remark,
+    lastSeenLatestBvid: cs.lastSeenLatestBvid,
+    hasUnreadUpdate: !!cs.hasUnreadUpdate,
   };
+}
+
+async function patchCustom(mid: number, patch: Partial<CustomSettings>): Promise<void> {
+  const db = await getDb();
+  const rows: any[] = await db.select("SELECT custom_settings_json FROM subscriptions WHERE mid = $1", [mid]);
+  const existing = parseCustomSettings(rows[0]?.custom_settings_json ?? null);
+  Object.assign(existing, patch);
+  await db.execute("UPDATE subscriptions SET custom_settings_json = $1 WHERE mid = $2", [JSON.stringify(existing), mid]);
+}
+
+export async function setRemark(mid: number, remark: string): Promise<void> {
+  await patchCustom(mid, { remark: remark.trim() || undefined });
+}
+
+/** Mark whether a UP has an unseen new video (pink dot). */
+export async function markUnread(mid: number, hasUnread: boolean): Promise<void> {
+  await patchCustom(mid, { hasUnreadUpdate: hasUnread });
+}
+
+/** Record the latest seen bvid when the user opens a UP. */
+export async function markSeen(mid: number, latestBvid: string): Promise<void> {
+  await patchCustom(mid, { lastSeenLatestBvid: latestBvid, hasUnreadUpdate: false });
 }
 
 export async function listSubscriptions(): Promise<Subscription[]> {
@@ -75,6 +108,13 @@ export async function removeSubscription(mid: number): Promise<void> {
   await db.execute("DELETE FROM videos WHERE mid = $1", [mid]);
   await db.execute("DELETE FROM video_snapshots WHERE mid = $1", [mid]);
   await db.execute("DELETE FROM users_cache WHERE mid = $1", [mid]);
+  // Remove the user's cached asset directory (avatar/banner/pendant/...).
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("clear_user_cache", { mid: String(mid) });
+  } catch {
+    /* ignore if not in Tauri */
+  }
 }
 
 export function parseCustomSettings(json: string | null): CustomSettings {

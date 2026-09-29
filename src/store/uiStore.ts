@@ -13,6 +13,7 @@ interface UIState {
   addOpen: boolean;
   isWindowVisible: boolean;
   toast: string | null;
+  refreshing: boolean;
 
   setSelectedMid: (mid: number | null) => void;
   setSort: (field: SortField, direction: SortDirection) => void;
@@ -25,6 +26,7 @@ interface UIState {
   setWindowVisible: (visible: boolean) => void;
   showToast: (msg: string) => void;
   clearToast: () => void;
+  setRefreshing: (v: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -37,6 +39,7 @@ export const useUIStore = create<UIState>((set) => ({
   addOpen: false,
   isWindowVisible: true,
   toast: null,
+  refreshing: false,
 
   setSelectedMid: (mid) => set({ selectedMid: mid }),
   setSort: (sortField, sortDirection) => set({ sortField, sortDirection }),
@@ -50,4 +53,5 @@ export const useUIStore = create<UIState>((set) => ({
   setWindowVisible: (visible) => set({ isWindowVisible: visible }),
   showToast: (msg) => set({ toast: msg }),
   clearToast: () => set({ toast: null }),
+  setRefreshing: (v) => set({ refreshing: v }),
 }));

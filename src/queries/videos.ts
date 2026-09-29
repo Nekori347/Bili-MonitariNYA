@@ -1,7 +1,9 @@
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import { BilibiliAdapter, limited } from "../services/bilibili/adapter";
 import type { OnlineStats, VideoSummary } from "../services/bilibili/types";
 import { insertSnapshot } from "../services/database/snapshots";
+import { getCachedVideos, saveVideos, saveVideoDetail } from "../services/database/videos";
 import { onlineInterval, videoStatsInterval } from "../utils/refresh";
 import { useUIStore } from "../store/uiStore";
 
@@ -28,20 +30,42 @@ interface DetailResult {
   cid: number;
 }
 
-/** Fetch the recent X videos for a UP and enrich each with its detail stats. */
+/** Read the last-known video list from SQLite for instant display. */
+function useCachedVideos(mid: number, limit: number): VideoSummary[] | null {
+  const [entry, setEntry] = useState<{ mid: number; list: VideoSummary[] } | null>(null);
+  useEffect(() => {
+    let on = true;
+    void getCachedVideos(mid, limit).then((list) => {
+      if (on && list.length > 0) setEntry({ mid, list });
+    });
+    return () => {
+      on = false;
+    };
+  }, [mid, limit]);
+  return entry && entry.mid === mid ? entry.list : null;
+}
+
 export function useVideos(mid: number, limit: number, isForeground: boolean): VideoItem[] | undefined {
   const visible = useUIStore((s) => s.isWindowVisible);
   const mode = visible ? "foreground" : "tray";
+  const cachedList = useCachedVideos(mid, limit);
 
   const listQuery = useQuery({
     queryKey: videoKeys.list(mid, limit),
-    queryFn: () => BilibiliAdapter.getUserVideos(mid, limit),
+    queryFn: async () => {
+      const list = await BilibiliAdapter.getUserVideos(mid, limit);
+      void saveVideos(mid, list).catch(() => {});
+      return list;
+    },
     staleTime: LIST_STALE,
     refetchInterval: videoStatsInterval(mode, isForeground),
     retry: 2,
   });
 
-  const summaries = listQuery.data ?? [];
+  const summaries = useMemo(
+    () => listQuery.data ?? cachedList ?? [],
+    [listQuery.data, cachedList],
+  );
 
   const detailQueries = useQueries({
     queries: summaries.map((s: VideoSummary) => ({
@@ -57,6 +81,7 @@ export function useVideos(mid: number, limit: number, isForeground: boolean): Vi
           coinCount: detail.coin,
           onlineCount: null,
         }).catch(() => {});
+        void saveVideoDetail(s.bvid, { view: detail.view, like: detail.like, coin: detail.coin, cid: detail.cid, aid: detail.aid }).catch(() => {});
         return { view: detail.view, like: detail.like, coin: detail.coin, cid: detail.cid };
       },
       staleTime: LIST_STALE,

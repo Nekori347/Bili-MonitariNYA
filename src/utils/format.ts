@@ -35,3 +35,18 @@ export function formatDate(ts: number): string {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${dd}`;
 }
+
+/** Compact "time since last post": 12分钟 / 10小时 / 5天 / 2个月. */
+export function formatAgo(ts: number): string {
+  const diff = Date.now() - ts * 1000;
+  const m = Math.floor(diff / 60_000);
+  if (m < 1) return "刚刚";
+  if (m < 60) return `${m}分钟`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}小时`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}天`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo}个月`;
+  return `${Math.floor(mo / 12)}年`;
+}

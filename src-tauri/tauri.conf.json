@@ -14,10 +14,10 @@
       {
         "title": "BiliUPMonitor",
         "label": "main",
-        "width": 1180,
-        "height": 780,
-        "minWidth": 920,
-        "minHeight": 620,
+        "width": 480,
+        "height": 720,
+        "minWidth": 380,
+        "minHeight": 600,
         "decorations": false,
         "transparent": true,
         "shadow": true,
@@ -26,7 +26,11 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPCACHE/**", "$APPDATA/**", "$APPLOCALDATA/**", "$RESOURCE/**"]
+      }
     }
   },
   "bundle": {

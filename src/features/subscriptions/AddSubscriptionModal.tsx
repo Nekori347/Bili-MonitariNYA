@@ -25,13 +25,16 @@ export function AddSubscriptionModal() {
         setError("该 UP 主已在订阅列表中");
         return;
       }
-      const profile = await BilibiliAdapter.getUserProfile(mid);
-      await addSub.mutateAsync({ mid, name: profile.name || `UID ${mid}`, videoLimit: globalLimit });
+      // Fast path: only confirm the user exists, then close immediately.
+      // Profile / banner / assets / videos are filled in the background by
+      // the normal queries once the subscription is selected.
+      const brief = await BilibiliAdapter.getBriefUser(mid);
+      await addSub.mutateAsync({ mid, name: brief.name || `UID ${mid}`, videoLimit: globalLimit });
       setSelectedMid(mid);
       setAddOpen(false);
     } catch (e) {
       if (e instanceof BiliError) {
-        setError(e.type === "not_found" ? "未找到该 UP 主" : `获取资料失败：${e.message}`);
+        setError(e.type === "not_found" ? "未找到该 UP 主" : `添加失败：${e.message}`);
       } else {
         setError("添加失败，请检查网络或输入");
       }
@@ -56,7 +59,7 @@ export function AddSubscriptionModal() {
         <input
           autoFocus
           className="w-full mb-2"
-          placeholder="https://space.bilibili.com/123456 或 123456"
+          placeholder="https://space.bilibili.com/17409970"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void submit()}

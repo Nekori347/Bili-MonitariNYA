@@ -11,43 +11,97 @@ import type {
 
 export function normalizeProfile(raw: any, mid: number): UserProfile {
   const d = raw?.data ?? {};
+  return buildProfile(d, mid);
+}
+
+export function normalizeCardProfile(raw: any, mid: number): Partial<UserProfile> {
+  const card = raw?.data?.card ?? {};
+  const p = buildProfile(card, mid);
+  // card endpoint uses "Official" (capital) / official_verify for certification.
+  const off = card.Official ?? card.official_verify ?? card.official;
+  if (off && (off.title || off.desc)) {
+    p.official = {
+      title: String(off.title ?? off.desc ?? ""),
+      type: Number(off.type ?? 0),
+      role: Number(off.role ?? 0),
+      desc: off.desc ? String(off.desc) : undefined,
+    };
+  }
+  return p;
+}
+
+/** Convert an int color or "#AARRGGBB" string to "#RRGGBB". */
+function toHexColor(v: any): string | undefined {
+  if (v == null) return undefined;
+  if (typeof v === "string") {
+    const s = v.replace("#", "");
+    if (s.length === 8) return "#" + s.slice(2); // drop alpha
+    if (s.length === 6) return "#" + s;
+    return undefined;
+  }
+  if (typeof v === "number") {
+    return "#" + (v & 0xffffff).toString(16).padStart(6, "0");
+  }
+  return undefined;
+}
+
+/** Bilibili space banner URL is a relative path (bfs/space/xxx.png). */
+function toBannerUrl(v: any): string | undefined {
+  if (!v) return undefined;
+  const s = String(v);
+  if (s.startsWith("http")) return s;
+  // top_photo may be "bfs/space/..." (already prefixed) or a bare filename.
+  if (s.startsWith("bfs/") || s.startsWith("/bfs/")) {
+    return "https://i0.hdslb.com/" + s.replace(/^\/+/, "");
+  }
+  return "https://i0.hdslb.com/bfs/" + s.replace(/^\/+/, "");
+}
+
+/** Shared field extraction for both acc/info and card payloads. */
+function buildProfile(d: any, mid: number): UserProfile {
   const vip = d.vip ?? {};
-  const official = d.official ?? {};
+  const label = vip.label ?? {};
+  const pendant = d.pendant ?? {};
+  const nameplate = d.nameplate ?? {};
+  const official = d.official ?? d.Official ?? {};
   const fansMedal = d.fans_medal ?? {};
+  const medal = fansMedal.medal ?? {};
+  const medalDetail = fansMedal.detail ?? {};
   return {
     mid: Number(d.mid ?? mid),
     name: String(d.name ?? ""),
     face: String(d.face ?? ""),
     sign: String(d.sign ?? ""),
-    level: Number(d.level ?? 0),
-    isVip: Number(vip.status ?? 0) === 1,
-    vipLabel: vip.label?.text ? String(vip.label.text) : undefined,
-    official: official.title
-      ? { title: String(official.title), type: Number(official.type ?? 0), desc: official.desc ? String(official.desc) : undefined }
+    level: Number(d.level ?? d.level_info?.current_level ?? 0),
+    sex: String(d.sex ?? ""),
+    isSeniorMember: Number(d.is_senior_member ?? 0) === 1,
+    isVip: Number(vip.status ?? d.vipStatus ?? 0) === 1,
+    vipType: Number(vip.type ?? d.vipType ?? 0),
+    vipLabel: label.text ? String(label.text) : undefined,
+    vipLabelImg: label.img_label_uri_hans_static || label.img_label_uri_hans || undefined,
+    vipLabelTheme: label.label_theme ? String(label.label_theme) : undefined,
+    nicknameColor: d.nickname_color ? String(d.nickname_color) : undefined,
+    official: official.title || official.desc
+      ? {
+          title: String(official.title ?? official.desc ?? ""),
+          type: Number(official.type ?? 0),
+          role: Number(official.role ?? 0),
+          desc: official.desc ? String(official.desc) : undefined,
+        }
       : undefined,
-    topPhoto: d.top_photo ? String(d.top_photo) : undefined,
-    pendantUrl: d.pendant?.image ? String(d.pendant.image) : undefined,
-    nameplateUrl: d.nameplate?.image ? String(d.nameplate.image) : undefined,
-    fansMedal: fansMedal.medal?.medal_name
-      ? { name: String(fansMedal.medal.medal_name), level: Number(fansMedal.medal.level ?? 0) }
+    topPhoto: toBannerUrl(d.top_photo),
+    pendantUrl: pendant.image_enhance || pendant.image || undefined,
+    nameplateUrl: nameplate.image ? String(nameplate.image) : undefined,
+    nameplateName: nameplate.name ? String(nameplate.name) : undefined,
+    fansMedal: medal.medal_name
+      ? {
+          name: String(medal.medal_name),
+          level: Number(medal.level ?? 0),
+          colorStart: toHexColor(medal.medal_color_start),
+          colorEnd: toHexColor(medal.medal_color_end),
+          colorBorder: toHexColor(medal.medal_color_border ?? medalDetail.medal_color_border),
+        }
       : undefined,
-  };
-}
-
-export function normalizeCardProfile(raw: any, mid: number): Partial<UserProfile> {
-  const card = raw?.data?.card ?? {};
-  return {
-    mid: Number(card.mid ?? mid),
-    name: String(card.name ?? ""),
-    face: String(card.face ?? ""),
-    sign: String(card.sign ?? ""),
-    level: Number(card.level_info?.current_level ?? 0),
-    isVip: Number(card.vip?.status ?? 0) === 1,
-    vipLabel: card.vip?.label?.text ? String(card.vip.label.text) : undefined,
-    official: card.official?.title
-      ? { title: String(card.official.title), type: Number(card.official.type ?? 0) }
-      : undefined,
-    topPhoto: card.top_photo ? String(card.top_photo) : undefined,
   };
 }
 
@@ -142,17 +196,24 @@ function formatCount(n?: number): string {
 }
 
 export function normalizeDecoration(raw: any): DynamicDecoration | null {
-  const author = raw?.data?.items?.[0]?.modules?.module_author;
-  const dec = author?.decorate;
-  if (!dec || Object.keys(dec).length === 0) return null;
-  const fan = dec.fan ?? {};
-  return {
-    id: dec.id != null ? Number(dec.id) : undefined,
-    name: dec.name ? String(dec.name) : undefined,
-    cardUrl: dec.card_url ? String(dec.card_url) : undefined,
-    jumpUrl: dec.jump_url ? String(dec.jump_url) : undefined,
-    fanNumber: fan.number != null ? Number(fan.number) : undefined,
-    fanNumberText: fan.num_str ? String(fan.num_str) : undefined,
-    color: fan.color ? String(fan.color) : undefined,
-  };
+  const items = raw?.data?.items ?? [];
+  // Scan a few recent dynamics for the first valid decorate.
+  for (const item of items.slice(0, 8)) {
+    const author = item?.modules?.module_author;
+    const dec = author?.decorate ?? author?.decoration_card;
+    if (!dec || typeof dec !== "object" || Object.keys(dec).length === 0) continue;
+    const fan = dec.fan ?? {};
+    const cardUrl = dec.card_url || dec.big_card_url || dec.image_enhance;
+    if (!cardUrl && !dec.name && !fan.num_str) continue;
+    return {
+      id: dec.id != null ? Number(dec.id) : undefined,
+      name: dec.name ? String(dec.name) : undefined,
+      cardUrl: cardUrl ? String(cardUrl) : undefined,
+      jumpUrl: dec.jump_url ? String(dec.jump_url) : undefined,
+      fanNumber: fan.number != null ? Number(fan.number) : undefined,
+      fanNumberText: fan.num_str ? String(fan.num_str) : undefined,
+      color: fan.color ? String(fan.color) : undefined,
+    };
+  }
+  return null;
 }

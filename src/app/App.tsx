@@ -1,16 +1,19 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Providers } from "./providers";
 import { useSubscriptions } from "../queries/subscriptions";
 import { useUIStore } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
+import { useAuthStore } from "../store/authStore";
 import { Titlebar } from "../features/window-controls/Titlebar";
 import { Sidebar } from "../features/subscriptions/Sidebar";
+import { BookmarkRail } from "../features/subscriptions/BookmarkRail";
 import { ProfileCard } from "../features/profile-card/ProfileCard";
 import { VideoList } from "../features/video-list/VideoList";
 import { AddSubscriptionModal } from "../features/subscriptions/AddSubscriptionModal";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
 import {
+  adjustWindowWidth,
   applyWindowEffects,
   setAlwaysOnTop,
   setCloseBehavior,
@@ -18,6 +21,9 @@ import {
   onWindowShown,
   onTrayRefresh,
 } from "../utils/window";
+
+/** Width of the transparent strip that hosts the collapsed bookmark rail. */
+export const GUTTER_W = 134;
 
 function useThemeEffect() {
   const theme = useSettingsStore((s) => s.global.theme);
@@ -62,6 +68,16 @@ function useWindowStateEffect() {
   useEffect(() => {
     if (loaded) void setCloseBehavior(closeToTray);
   }, [loaded, closeToTray]);
+}
+
+/** Restore the DPAPI-encrypted Bilibili session once settings are ready. */
+function useAuthEffect() {
+  const loaded = useSettingsStore((s) => s.loaded);
+  const hydrate = useAuthStore((s) => s.hydrate);
+
+  useEffect(() => {
+    if (loaded) void hydrate();
+  }, [loaded, hydrate]);
 }
 
 /** React to tray / window-visibility events from the Rust layer. */
@@ -132,6 +148,7 @@ function ToastHost() {
 function Main() {
   useThemeEffect();
   useWindowStateEffect();
+  useAuthEffect();
   useTrayEvents();
   const { data: subs, isLoading } = useSubscriptions();
   const selectedMid = useUIStore((s) => s.selectedMid);
@@ -151,26 +168,60 @@ function Main() {
 
   const hasSubs = !!subs && subs.length > 0;
 
+  // Collapsing the sidebar widens the window to the left so the visible panel
+  // keeps its width and the new strip stays transparent (bookmark rail lives there).
+  // Only fires on an actual collapse/expand (and survives StrictMode's double effect).
+  const prevCollapsed = useRef(sidebarCollapsed);
+  useEffect(() => {
+    if (prevCollapsed.current === sidebarCollapsed) return;
+    prevCollapsed.current = sidebarCollapsed;
+    void adjustWindowWidth(sidebarCollapsed ? GUTTER_W : -GUTTER_W);
+  }, [sidebarCollapsed]);
+
   return (
-    <div className="app-shell">
-      <div className="accent-bar" />
-      <Titlebar />
-      <div className="flex flex-1 min-h-0">
-        {!sidebarCollapsed && <Sidebar subs={subs ?? []} loading={isLoading} />}
-        <main className="flex-1 min-w-0 p-4 overflow-y-auto">
-          {!hasSubs ? (
-            <EmptyState />
-          ) : selectedMid != null ? (
-            <div className="flex flex-col gap-4">
-              <ProfileCard mid={selectedMid} />
-              <VideoList mid={selectedMid} />
-            </div>
-          ) : null}
-        </main>
+    <div className="app-root">
+      {sidebarCollapsed && <BookmarkRail subs={subs ?? []} />}
+
+      <div
+        className="app-shell"
+        style={{ left: sidebarCollapsed ? GUTTER_W : 0, transition: "left 190ms cubic-bezier(0.22,0.61,0.36,1)" }}
+      >
+        <div className="accent-bar" />
+        <Titlebar />
+        <div className="flex flex-1 min-h-0 relative">
+          {!sidebarCollapsed && <Sidebar subs={subs ?? []} loading={isLoading} />}
+          <main className="flex-1 min-w-0 p-2.5 flex flex-col min-h-0">
+            {!hasSubs ? (
+              <EmptyState />
+            ) : selectedMid != null ? (
+              <div className="flex flex-col flex-1 min-h-0" style={{ gap: 3 }}>
+                <ProfileCard mid={selectedMid} />
+                <RefreshProgress />
+                <VideoList mid={selectedMid} />
+              </div>
+            ) : null}
+          </main>
+        </div>
+        {addOpen && <AddSubscriptionModal />}
+        {settingsOpen && <SettingsPanel />}
+        <ToastHost />
       </div>
-      {addOpen && <AddSubscriptionModal />}
-      {settingsOpen && <SettingsPanel />}
-      <ToastHost />
+    </div>
+  );
+}
+
+function RefreshProgress() {
+  const refreshing = useUIStore((s) => s.refreshing);
+  return (
+    <div className="flex-none" style={{ height: 2, overflow: "hidden" }}>
+      <div
+        className="h-full rounded-full"
+        style={{
+          background: "#fb7299",
+          opacity: refreshing ? 1 : 0,
+          transition: "opacity 0.2s ease",
+        }}
+      />
     </div>
   );
 }

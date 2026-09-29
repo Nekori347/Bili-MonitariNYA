@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 export interface FetchResult {
   status: number;
   body: string;
+  /** Raw Set-Cookie headers (only populated when `wantCookies` is set). */
+  cookies?: string[];
 }
 
 interface FetchRequest {
@@ -10,6 +12,7 @@ interface FetchRequest {
   method?: string;
   params?: [string, string][];
   cookie?: string | null;
+  wantCookies?: boolean;
 }
 
 // Detect if we are running inside Tauri (as opposed to plain `vite dev` in a browser).
@@ -37,13 +40,16 @@ function pace(): Promise<void> {
  * Referer/Origin/User-Agent/Cookie headers (WebView forbids these from JS).
  * In plain browser dev it falls back to fetch for quick testing.
  */
-export async function biliFetch(url: string, opts: { params?: [string, string][]; cookie?: string | null } = {}): Promise<FetchResult> {
-  const { params = [], cookie = null } = opts;
+export async function biliFetch(
+  url: string,
+  opts: { params?: [string, string][]; cookie?: string | null; wantCookies?: boolean } = {},
+): Promise<FetchResult> {
+  const { params = [], cookie = null, wantCookies = false } = opts;
 
   await pace();
 
   if (isTauri()) {
-    const req: FetchRequest = { url, method: "get", params, cookie };
+    const req: FetchRequest = { url, method: "get", params, cookie, wantCookies };
     return invoke<FetchResult>("fetch_bili", { req });
   }
 

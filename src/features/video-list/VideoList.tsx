@@ -1,12 +1,16 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useVideos, type VideoItem } from "../../queries/videos";
 import { useUIStore, type SortField } from "../../store/uiStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useSubscriptions } from "../../queries/subscriptions";
+import { markSeen } from "../../services/database/subscriptions";
 import type { FieldVisibility } from "../../types/settings";
 import { videoUrl } from "../../services/bilibili/endpoints";
-import { formatCount, formatDate } from "../../utils/format";
-import { useGrowthMap } from "./useGrowthMap";
+import { formatAgo, formatCount } from "../../utils/format";
+import { useGrowthMap, type VideoGrowth } from "./useGrowthMap";
+import { Clock, Coin, Eye, ListSort, Play, RefreshCw, SortAsc, SortDesc, ThumbUp } from "../../components/ui/Icons";
 
 const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "pubdate", label: "发布时间" },
@@ -18,8 +22,7 @@ const SORT_OPTIONS: { value: SortField; label: string }[] = [
 function onlineValue(v: VideoItem): number {
   if (v.online?.exactCount != null) return v.online.exactCount;
   if (v.online?.displayText) {
-    const s = v.online.displayText;
-    const m = s.match(/([\d.]+)\s*(万|亿)?/);
+    const m = v.online.displayText.match(/([\d.]+)\s*(万|亿)?/);
     if (m) {
       const base = parseFloat(m[1]);
       if (m[2] === "亿") return base * 100_000_000;
@@ -27,7 +30,7 @@ function onlineValue(v: VideoItem): number {
       return base;
     }
   }
-  return -1; // unknown -> sort last
+  return -1;
 }
 
 export function VideoList({ mid }: { mid: number }) {
@@ -36,11 +39,36 @@ export function VideoList({ mid }: { mid: number }) {
   const sortDirection = useUIStore((s) => s.sortDirection);
   const setSort = useUIStore((s) => s.setSort);
   const toggleSortDirection = useUIStore((s) => s.toggleSortDirection);
-  const fields = useSettingsStore((s) => s.effectiveFields(mid));
+  const globalFields = useSettingsStore((s) => s.global.fields);
+  const perUserFields = useSettingsStore((s) => s.perUser[mid]?.fields);
+  const fields = useMemo(() => ({ ...globalFields, ...(perUserFields ?? {}) }), [globalFields, perUserFields]);
   const limit = useSettingsStore((s) => s.effectiveVideoLimit(mid));
+  const highlightField = useSettingsStore((s) => s.global.highlightField);
+  const growthPeriod = useSettingsStore((s) => s.global.growthPeriod);
+
+  const qc = useQueryClient();
+  const setRefreshing = useUIStore((s) => s.setRefreshing);
+  const [sortOpen, setSortOpen] = useState(false);
 
   const videos = useVideos(mid, limit, selectedMid === mid);
   const growthMap = useGrowthMap(videos ?? []);
+
+  // Record the latest seen bvid (used for the "new post" pink dot elsewhere).
+  const { data: subs } = useSubscriptions();
+  const sub = subs?.find((s) => s.mid === mid);
+  useEffect(() => {
+    if (videos && videos.length > 0 && sub) {
+      const latest = videos[0].bvid;
+      if (sub.lastSeenLatestBvid !== latest) {
+        void markSeen(mid, latest);
+      }
+    }
+  }, [videos, sub, mid]);
+
+  const latestPubdate = useMemo(() => {
+    if (!videos || videos.length === 0) return null;
+    return Math.max(...videos.map((v) => v.pubdate));
+  }, [videos]);
 
   const sorted = useMemo(() => {
     if (!videos) return [];
@@ -49,59 +77,67 @@ export function VideoList({ mid }: { mid: number }) {
     arr.sort((a, b) => {
       let va: number, vb: number;
       switch (sortField) {
-        case "view":
-          va = a.view ?? -1; vb = b.view ?? -1; break;
-        case "like":
-          va = a.like ?? -1; vb = b.like ?? -1; break;
-        case "online":
-          va = onlineValue(a); vb = onlineValue(b); break;
-        default:
-          va = a.pubdate; vb = b.pubdate;
+        case "view": va = a.view ?? -1; vb = b.view ?? -1; break;
+        case "like": va = a.like ?? -1; vb = b.like ?? -1; break;
+        case "online": va = onlineValue(a); vb = onlineValue(b); break;
+        default: va = a.pubdate; vb = b.pubdate;
       }
       return (va - vb) * dir;
     });
     return arr;
   }, [videos, sortField, sortDirection]);
 
+  const refresh = () => {
+    setRefreshing(true);
+    void qc.invalidateQueries({ queryKey: ["videos", mid] });
+    void qc.invalidateQueries({ queryKey: ["videoDetail"] });
+    void qc.invalidateQueries({ queryKey: ["online"] });
+    setTimeout(() => setRefreshing(false), 900);
+  };
+
   return (
-    <section className="card p-4">
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[13px] font-medium" style={{ color: "var(--text)" }}>
-            最近投稿
+    <section className="card flex flex-col min-h-0" style={{ borderTopLeftRadius: 6, borderTopRightRadius: 6 }}>
+      {/* Compact toolbar */}
+      <div className="flex items-center gap-2 px-3 py-1 border-b" style={{ borderColor: "var(--line)" }}>
+        <span className="text-[11px]" style={{ color: "var(--text-2)" }}>
+          最近投稿 <b style={{ color: "var(--text)" }}>{videos ? videos.length : 0}</b>
+        </span>
+        {latestPubdate != null && (
+          <span className="mx-auto text-[12px] font-semibold" style={{ color: "var(--accent)" }}>
+            距上次投稿 {formatAgo(latestPubdate)}
           </span>
-          {videos && (
-            <span className="text-xs" style={{ color: "var(--text-3)" }}>
-              {videos.length} 条
-            </span>
+        )}
+        <div className="flex items-center gap-0.5 no-drag relative">
+          <button className="titlebar-btn" style={{ width: 24, height: 24 }} title="刷新" onClick={refresh}>
+            <RefreshCw size={13} />
+          </button>
+          <button className="titlebar-btn" style={{ width: 24, height: 24 }} title="排序字段" onClick={() => setSortOpen((v) => !v)}>
+            <ListSort size={14} />
+          </button>
+          {sortOpen && (
+            <div className="absolute right-0 top-7 z-20 card p-1 flex flex-col min-w-28 shadow-lg">
+              {SORT_OPTIONS.map((o) => (
+                <button key={o.value}
+                  className="px-2.5 py-1.5 rounded-md text-left text-[12px] hover:bg-[var(--hover)]"
+                  style={{ color: sortField === o.value ? "var(--accent)" : "var(--text)" }}
+                  onClick={() => { setSort(o.value, sortDirection); setSortOpen(false); }}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
           )}
-        </div>
-        <div className="flex items-center gap-2 no-drag">
-          <select
-            value={sortField}
-            onChange={(e) => setSort(e.target.value as SortField, sortDirection)}
-            className="text-xs"
-          >
-            {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <button className="btn text-xs" onClick={toggleSortDirection}>
-            {sortDirection === "desc" ? "倒序 ↓" : "正序 ↑"}
+          <button className="titlebar-btn" style={{ width: 24, height: 24 }} title={sortDirection === "desc" ? "倒序" : "正序"} onClick={toggleSortDirection}>
+            {sortDirection === "desc" ? <SortDesc size={14} /> : <SortAsc size={14} />}
           </button>
         </div>
       </div>
 
       {!videos || videos.length === 0 ? (
-        <div className="py-10 text-center text-sm" style={{ color: "var(--text-3)" }}>
-          暂无投稿数据
-        </div>
+        <div className="py-10 text-center text-sm" style={{ color: "var(--text-3)" }}>暂无投稿数据</div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col p-1.5 gap-0.5 overflow-y-auto">
           {sorted.map((v) => (
-            <VideoRow key={v.bvid} v={v} fields={fields} growth={growthMap[v.bvid]} />
+            <VideoRow key={v.bvid} v={v} fields={fields} growth={growthMap[v.bvid]} sortField={sortField} highlightField={highlightField} period={growthPeriod} />
           ))}
         </div>
       )}
@@ -109,80 +145,70 @@ export function VideoList({ mid }: { mid: number }) {
   );
 }
 
-function VideoRow({
-  v,
-  fields,
-  growth,
-}: {
+function VideoRow({ v, fields, growth, sortField, highlightField, period }: {
   v: VideoItem;
   fields: FieldVisibility;
-  growth: { day: number | null; week: number | null; month: number | null };
+  growth: VideoGrowth | undefined;
+  sortField: SortField;
+  highlightField: string;
+  period: "day" | "week" | "month";
 }) {
+  const g = growth ?? { view: { day: null, week: null, month: null }, like: { day: null, week: null, month: null }, coin: { day: null, week: null, month: null } };
+  const cellColor = (key: string): string | undefined => {
+    if (sortField === key) return "#fb7299";
+    if (highlightField === key) return "#00aeec";
+    return undefined;
+  };
+
   return (
     <div
-      className="flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors"
-      style={{ border: "1px solid transparent" }}
+      className="flex gap-2.5 p-1.5 rounded-lg cursor-pointer transition-colors"
       onMouseEnter={(e) => (e.currentTarget.style.background = "var(--hover)")}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
       onClick={() => void openUrl(videoUrl(v.bvid))}
       title="点击打开视频"
     >
-      <img
-        src={v.cover}
-        alt={v.title}
-        width={112}
-        height={63}
-        className="rounded-md object-cover flex-none"
-        style={{ width: 112, height: 63, background: "var(--surface-2)" }}
-        draggable={false}
-        referrerPolicy="no-referrer"
-      />
+      <img src={v.cover} alt="" width={92} height={52}
+        className="rounded-md object-cover flex-none self-start"
+        style={{ width: 92, height: 52, background: "var(--surface-2)" }}
+        draggable={false} referrerPolicy="no-referrer" />
       <div className="flex-1 min-w-0">
-        <div className="truncate text-[13px] font-medium" style={{ color: "var(--text)" }}>
+        <div className="text-[12.5px] font-medium leading-snug" style={{ color: "var(--text)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
           {v.title}
         </div>
-        <div className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>
-          {formatDate(v.pubdate)}
+        <div className="grid items-center gap-x-3 gap-y-0.5 mt-1" style={{ gridTemplateColumns: "auto auto auto auto auto", justifyContent: "start" }}>
+          {/* row 1: play / like / coin / online / time (time rightmost) */}
+          {fields.videoView && <Cell icon={<Play size={11} />} text={v.view == null ? "…" : formatCount(v.view)} color={cellColor("view")} />}
+          {fields.videoLike && <Cell icon={<ThumbUp size={11} />} text={v.like == null ? "…" : formatCount(v.like)} color={cellColor("like")} />}
+          {fields.videoCoin && <Cell icon={<Coin size={11} />} text={v.coin == null ? "…" : formatCount(v.coin)} color={cellColor("coin")} />}
+          {fields.videoOnline && <Cell icon={<Eye size={11} />} text={v.online ? v.online.displayText : v.onlineError ? "失败" : "…"} color={cellColor("online")} />}
+          <Cell icon={<Clock size={11} />} text={formatAgo(v.pubdate) + "前"} color={cellColor("pubdate")} />
+          {/* row 2: growth deltas aligned under each data col */}
+          {fields.videoView && <Delta v={g.view[period]} />}
+          {fields.videoLike && <Delta v={g.like[period]} />}
+          {fields.videoCoin && <Delta v={g.coin[period]} />}
+          {fields.videoOnline && <span />}
+          <span />
         </div>
-        <div className="flex items-center gap-3 mt-1 flex-wrap text-xs" style={{ color: "var(--text-2)" }}>
-          {fields.videoView && <span title={v.view != null ? `${v.view}` : undefined}>▶ {v.view == null ? "…" : formatCount(v.view)}</span>}
-          {fields.videoLike && <span title={v.like != null ? `${v.like}` : undefined}>👍 {v.like == null ? "…" : formatCount(v.like)}</span>}
-          {fields.videoCoin && <span title={v.coin != null ? `${v.coin}` : undefined}>🪙 {v.coin == null ? "…" : formatCount(v.coin)}</span>}
-          {fields.videoOnline && (
-            <span style={{ color: "var(--accent)" }}>
-              {v.online ? (
-                `👁 ${v.online.displayText}`
-              ) : v.onlineError ? (
-                "👁 在线获取失败"
-              ) : (
-                "👁 在线获取中"
-              )}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-col gap-1 items-end flex-none">
-        {fields.growthDay && <GrowthPill delta={growth.day} label="今日" />}
-        {fields.growthWeek && <GrowthPill delta={growth.week} label="本周" />}
-        {fields.growthMonth && <GrowthPill delta={growth.month} label="本月" />}
       </div>
     </div>
   );
 }
 
-function GrowthPill({ delta, label }: { delta: number | null; label: string }) {
-  if (delta == null) {
-    return (
-      <span className="pill" title="数据积累中">
-        统计中 · {label}
-      </span>
-    );
-  }
-  const cls = delta > 0 ? "pos" : delta < 0 ? "neg" : "";
+function Cell({ icon, text, color, style }: { icon: React.ReactNode; text: string; color?: string; style?: React.CSSProperties }) {
   return (
-    <span className={`pill ${cls}`} title={`${label}增长 ${delta >= 0 ? "+" : ""}${delta}`}>
-      {delta >= 0 ? "+" : ""}
-      {formatCount(delta)} {label}
+    <span className="inline-flex items-center gap-0.5 text-[11px] whitespace-nowrap" style={{ color: color ?? "var(--text-2)", ...style }} title={text}>
+      {icon}{text}
+    </span>
+  );
+}
+
+function Delta({ v }: { v: number | null }) {
+  if (v == null) return <span />;
+  const color = v > 0 ? "#22a06b" : v < 0 ? "#e5484d" : "var(--text-3)";
+  return (
+    <span className="inline-flex text-[10px] font-medium px-1 rounded" style={{ color, background: "color-mix(in srgb, " + color + " 12%, transparent)", width: "fit-content" }}>
+      {v >= 0 ? "+" : ""}{formatCount(v)}
     </span>
   );
 }
