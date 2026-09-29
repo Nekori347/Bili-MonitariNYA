@@ -1,0 +1,28 @@
+import { getCurrentWindow, Effect } from "@tauri-apps/api/window";
+
+export const appWindow = getCurrentWindow();
+
+export async function setAlwaysOnTop(on: boolean): Promise<void> {
+  try {
+    await appWindow.setAlwaysOnTop(on);
+  } catch {
+    /* ignore if unsupported */
+  }
+}
+
+/** Apply native window backdrop (Mica on Win11, Acrylic/Blur elsewhere). */
+export async function applyWindowEffects(): Promise<void> {
+  try {
+    // Mica needs Win11; older Windows falls back to acrylic/blur. Any failure
+    // is non-fatal — the CSS backdrop-filter in the UI is the visual fallback.
+    await appWindow.setEffects({
+      effects: [Effect.Mica, Effect.Acrylic, Effect.Blur],
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+export function isTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
