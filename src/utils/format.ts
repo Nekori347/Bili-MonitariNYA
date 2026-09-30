@@ -55,3 +55,22 @@ export function formatAgo(ts: number): string {
   if (mo < 12) return `${mo}个月`;
   return `${Math.floor(mo / 12)}年`;
 }
+
+/**
+ * The narrow-window form of `formatAgo`: 18小时前 → 18h.
+ * Used when the row is tight, so the timestamp keeps its full value instead of
+ * being clipped; 中 and 极窄 share this one form.
+ */
+export function formatAgoShort(ts: number): string {
+  const diff = Date.now() - ts * 1000;
+  const m = Math.floor(diff / 60_000);
+  if (m < 1) return "刚刚";
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo}mo`;
+  return `${Math.floor(mo / 12)}y`;
+}

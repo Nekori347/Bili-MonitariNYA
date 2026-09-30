@@ -8,7 +8,7 @@ import { useSubscriptions } from "../../queries/subscriptions";
 import { markSeen } from "../../services/database/subscriptions";
 import type { FieldVisibility, HighlightField, VideoFieldKey } from "../../types/settings";
 import { coverUrl, videoUrl } from "../../services/bilibili/endpoints";
-import { formatAgo, formatAgoSpaced, formatCount } from "../../utils/format";
+import { formatAgo, formatAgoShort, formatAgoSpaced, formatCount } from "../../utils/format";
 import { growthFor, useGrowthMap, type VideoGrowth } from "./useGrowthMap";
 import {
   Clock,
@@ -61,17 +61,27 @@ const COVER_MAX = 92;
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
+/** Below this the row switches cover ratio and timestamp form. */
+const SHORT_FORM_AT = 0.35;
+
 function rowMetrics(width: number) {
   const t = clamp01((width - TIGHT_W) / (ROOMY_W - TIGHT_W));
   const coverW = Math.round(lerp(COVER_MIN, COVER_MAX, t));
+  // The cover ratio and the timestamp form only change once the gaps, padding
+  // and cover size have already been squeezed all the way down, and both are
+  // derived from the container width alone — never from the row's own layout.
+  const compact = t < SHORT_FORM_AT;
+  const ratio: "16:9" | "4:3" = compact ? "4:3" : "16:9";
   return {
     padding: Math.round(lerp(PAD_MIN, PAD_MAX, t) * 10) / 10,
     gap: Math.round(lerp(GAP_MIN, GAP_MAX, t) * 10) / 10,
     colGap: Math.round(lerp(COL_GAP_MIN, COL_GAP_MAX, t) * 10) / 10,
     sepGap: Math.round(lerp(4, 6, t) * 10) / 10,
     coverW,
-    coverH: Math.round((coverW * 9) / 16),
+    coverH: Math.round(coverW / (ratio === "4:3" ? 4 / 3 : 16 / 9)),
     iconSize: Math.round(lerp(10, 11, t)),
+    ratio,
+    shortTime: compact,
   };
 }
 
@@ -339,7 +349,8 @@ function VideoRow({ v, metrics, statsColumns, trailing, growth, sortField, highl
       default:
         // 投稿时间 carries no growth pill — it is not a counter.
         return <DataColumn key={key} stacked={stacked} icon={<Clock size={i} />}
-          text={`${formatAgo(v.pubdate)}前`} color={color} growth={null} />;
+          text={metrics.shortTime ? formatAgoShort(v.pubdate) : `${formatAgo(v.pubdate)}前`}
+          color={color} growth={null} />;
     }
   };
 
@@ -353,7 +364,7 @@ function VideoRow({ v, metrics, statsColumns, trailing, growth, sortField, highl
       title="点击打开视频"
     >
       <img
-        src={coverUrl(v.cover, "16:9")}
+        src={coverUrl(v.cover, metrics.ratio)}
         alt=""
         className="rounded-md object-cover flex-none self-start"
         style={{ width: metrics.coverW, height: metrics.coverH, background: "var(--surface-2)", flexShrink: 0 }}
@@ -373,7 +384,9 @@ function VideoRow({ v, metrics, statsColumns, trailing, growth, sortField, highl
               {statsColumns.map((k) => renderCell(k, k))}
             </div>
           )}
-          <div className="video-trailing flex-none" style={{ minWidth: 0 }}>
+          {/* The timestamp owns its own slot and never shrinks: when space runs
+              out the flow lane compresses first, the time is never overlapped. */}
+          <div className="video-trailing" style={{ flex: "0 0 auto" }}>
             {trailing ? renderCell(trailing, "trailing") : null}
           </div>
         </div>
