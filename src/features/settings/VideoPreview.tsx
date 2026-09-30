@@ -108,7 +108,7 @@ export function VideoPreview({
         <div className="flex-1 min-w-0 flex flex-col">
           <span className="block text-[12px] font-medium" style={{ color: "var(--text)" }}>示例投稿标题</span>
           <div className="flex items-start gap-1.5 mt-1">
-            <div className="flex items-start gap-1 min-w-0">{flow.map((k) => column(k))}</div>
+            <div className="flex flex-wrap items-start gap-1 min-w-0">{flow.map((k) => column(k))}</div>
             <span className="flex-1" />
             {trailing && column(trailing)}
           </div>

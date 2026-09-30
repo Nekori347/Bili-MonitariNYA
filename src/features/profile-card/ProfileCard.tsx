@@ -581,12 +581,18 @@ function Ornament({ decoration, src }: { decoration: DynamicDecoration; src?: st
   const url = decoration.imageEnhance || src || decoration.cardUrl;
   const label = decoration.fanNumberText;
   if (!url) return null;
+  // The digits keep the decoration's own theme colour; the white stroke and the
+  // soft plate behind them are only there to keep them readable.
+  const digitColor =
+    decoration.colorFormat?.colors?.[0] ?? decoration.themeColor ?? decoration.color ?? "#fff";
   return (
     <div className="ornament" title={decoration.name}>
       <img src={url} alt="" className="ornament-img" draggable={false} referrerPolicy="no-referrer" {...assetImgHandlers()} />
-      {/* Overlaid on the card's own plate — the card already carries the
-          gradient, so nothing is drawn behind the digits. */}
-      {label && <span className="ornament-num">{label}</span>}
+      {label && (
+        <span className="ornament-num" style={{ color: digitColor }}>
+          {label}
+        </span>
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import {
   type WindowMode,
 } from "../../store/uiStore";
 import type { ThemeMode } from "../../types/settings";
+import { APP_DISPLAY_NAME } from "../../config/app";
 import { Gear, Lock, Maximize, Minus, Monitor, Moon, Pin, Restore, Sun, XIcon } from "../../components/ui/Icons";
 
 const THEME_CYCLE: ThemeMode[] = ["system", "light", "dark"];
@@ -79,7 +80,7 @@ export function Titlebar() {
       <div className="drag-region" data-tauri-drag-region>
         <div className="flex items-center gap-1.5 no-drag" data-tauri-drag-region>
           <img src="/icons/icon.png" alt="Bili Monitor" width={15} height={15} className="app-logo" />
-          <span className="font-semibold text-[12px]" style={{ color: "var(--text)" }}>Bili Monitor</span>
+          <span className="font-semibold text-[12px]" style={{ color: "var(--text)" }}>{APP_DISPLAY_NAME}</span>
           <button className="titlebar-btn" style={{ width: 22, height: 22 }} title={themeTitle} onClick={cycleTheme}>
             {themeIcon}
           </button>

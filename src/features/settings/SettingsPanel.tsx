@@ -36,6 +36,7 @@ import {
   DOWNLOAD_URL,
   LICENSE_NAME,
   PROJECT_URL,
+  REPO_PUBLISHED,
 } from "../../config/app";
 import { ChevronDown, ExternalLink, Plus, Undo, XIcon } from "../../components/ui/Icons";
 
@@ -200,7 +201,7 @@ export function SettingsPanel() {
 
         <div className="flex-1 min-h-0 flex">
           {/* level 1: categories */}
-          <nav className="w-[132px] flex-none border-r py-2 flex flex-col gap-0.5" style={{ borderColor: "var(--line)" }}>
+          <nav className="settings-nav flex-none border-r py-2 flex flex-col gap-0.5" style={{ borderColor: "var(--line)" }}>
             {categories.map((c) => (
               <button
                 key={c.id}
@@ -250,7 +251,7 @@ export function SettingsPanel() {
         </div>
 
         {/* fixed footer: destructive on the left */}
-        <div className="flex items-center justify-between px-5 py-3 border-t" style={{ borderColor: "var(--line)" }}>
+        <div className="settings-footer flex items-center justify-between px-5 py-3 border-t" style={{ borderColor: "var(--line)" }}>
           {mode === "global" ? (
             <button
               className="btn text-xs"
@@ -674,10 +675,14 @@ function AboutSection() {
             <button className="link-btn" onClick={() => void openUrl(AUTHOR_BILIBILI_URL)}>{APP_AUTHOR}</button>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>项目地址</span>
-            <button className="link-btn" onClick={() => void openUrl(PROJECT_URL)}>
-              {PROJECT_URL.replace(/^https?:\/\//, "")} <ExternalLink size={11} />
-            </button>
+            <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>GitHub</span>
+            {REPO_PUBLISHED ? (
+              <button className="link-btn" onClick={() => void openUrl(PROJECT_URL)}>
+                {PROJECT_URL.replace(/^https?:\/\//, "")} <ExternalLink size={11} />
+              </button>
+            ) : (
+              <span style={{ color: "var(--text-3)" }}>待正式仓库创建后填写</span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>软件下载</span>
@@ -878,8 +883,8 @@ function Section({ title, open: initialOpen, children }: { title: string; open?:
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-1.5 gap-3">
-      <span className="text-[12.5px] shrink-0" style={{ color: "var(--text-2)" }}>{label}</span>
+    <div className="settings-row py-1.5">
+      <span className="settings-row-label text-[12.5px] shrink-0" style={{ color: "var(--text-2)" }}>{label}</span>
       <div className="flex items-center gap-2 min-w-0">{children}</div>
     </div>
   );

@@ -103,22 +103,26 @@ body {
   -webkit-backdrop-filter: blur(18px);
 }
 
-/* bilibili pink accent strip — floating rounded bar inset from top edge */
+/* bilibili pink accent strip — floating rounded bar inset from top edge.
+   On logo hover the strip pulls back from its LEFT end so the grown logo never
+   covers it. */
 .accent-bar {
   height: 3px;
   margin: 3px 10px 0;
   background: #fb7299;
   border-radius: 999px;
   flex: none;
+  transition: margin-left 160ms ease-out;
 }
 
-/* window titlebar */
+/* window titlebar — the 4px left padding is what lets the logo end up ~2px
+   from the window edge once it grows (it scales about its own left edge). */
 .titlebar {
   height: 28px;
   flex: none;
   display: flex;
   align-items: center;
-  padding: 0 6px 0 12px;
+  padding: 0 6px 0 4px;
   gap: 6px;
 }
 
@@ -158,20 +162,20 @@ body {
   transition: transform 160ms ease-out, margin-right 160ms ease-out, box-shadow 160ms ease-out;
   will-change: transform;
 }
+/* Grows out of its own spot: about the left edge so it reaches toward the
+   window's left/top corner, with the margin opening up so 标题 / 夜间 / 设置
+   slide right instead of being covered. */
 .app-logo:hover {
-  transform: scale(2.6);
-  margin-right: 26px;
+  transform: scale(2.2);
+  margin-right: 20px;
   position: relative;
   z-index: 30;
   box-shadow: 0 3px 14px rgba(0, 0, 0, 0.3);
 }
-/* The pink strip above the titlebar pulls back while the logo is grown, so the
-   corner stays visually anchored. */
-.accent-bar {
-  transition: margin-right 160ms ease-out;
-}
+/* The pink strip gives the logo room from the left, and is always shorter than
+   the logo is wide so the two can never overlap. */
 .app-shell:has(.app-logo:hover) .accent-bar {
-  margin-right: 52px;
+  margin-left: 46px;
 }
 
 /* ---- Main pane scrim while the sidebar manages subscriptions ---- */
@@ -622,28 +626,47 @@ body {
   border: 1px dashed var(--accent-ring);
   background: color-mix(in srgb, var(--surface-2) 70%, transparent);
 }
-/* The number is drawn ON the capsule the artwork already contains — B站's fan
-   card is a 438×132 image whose left third is the graded plate and whose right
-   side is the character. So there is no background here at all: no black
-   backdrop, no white plate, no second pill. Only the digits, with a white
-   stroke and a soft shadow so they stay legible on any theme colour. */
+/* The digits sit on the plate the artwork already reserves for them, keeping
+   the decoration's own theme colour — NOT white. A white stroke and a very
+   light white plate lift them off the banner, which matters for cards like
+   猫子猫's whose artwork is almost fully transparent. */
 .ornament-num {
   position: absolute;
   left: 36%;
   width: 32%;
   top: 50%;
   transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 17px;
   text-align: center;
   font-family: fanscard, "Reeji-CloudHuPo-GBK", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 12px;
-  line-height: 16px;
+  line-height: 17px;
   font-weight: 600;
   white-space: nowrap;
   letter-spacing: 0.02em;
-  color: #fff;
-  -webkit-text-stroke: 0.4px rgba(255, 255, 255, 0.9);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  -webkit-text-stroke: 0.5px rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   pointer-events: none;
+}
+/* The helper layer: same shape, same left-to-right fade as the artwork's own
+   plate, low-opacity white — never a black backdrop and never a redrawn card. */
+.ornament-num::before {
+  content: "";
+  position: absolute;
+  inset: -2px -7px;
+  border-radius: 9px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.28) 28%,
+    rgba(255, 255, 255, 0.18) 78%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  box-shadow: 0 1px 7px rgba(0, 0, 0, 0.18);
+  z-index: -1;
 }
 /* Only inside the settings preview does it need to accept a click. */
 .pz-scope .ornament,
@@ -670,12 +693,14 @@ body {
   user-select: none;
   line-height: 1;
 }
+/* The whole medal is a stable flex row: a long UID next to it can neither
+   squeeze the name nor shift the level disc. */
 .fm-name {
   display: inline-flex;
   align-items: center;
   height: 21px;
   min-width: 0;
-  /* Centring only — the name must never depend on the text baseline. */
+  flex: 0 0 auto;
   line-height: 1;
 }
 .fm-name > span {
@@ -693,8 +718,11 @@ body {
   vertical-align: middle;
   zoom: 0.5;
 }
+/* Fixed square, flex-centred. The inner span is given a fixed width BEFORE the
+   zoom so a one-digit 8 and a two-digit 21 land on exactly the same optical
+   centre — no glyph-width drift, no baseline dependence. */
 .fm-level {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   width: 16px;
@@ -702,9 +730,12 @@ body {
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.26);
   flex: none;
+  overflow: hidden;
 }
 .fm-level > span {
   display: inline-block;
+  width: 32px;
+  text-align: center;
   /* Reeji-CloudHuPo-GBK is Bilibili's level-digit face. Neither it nor
      `fanscard` ships with the app (neither has a redistribution grant), so the
      fallbacks carry the digit: a slightly heavier, tabular-numeral render keeps
@@ -891,6 +922,46 @@ body {
   color: #e5484d;
   border-color: color-mix(in srgb, #e5484d 45%, var(--line));
 }
+/* ---- Settings panel: narrow-window layout ------------------------------
+   The panel is 720px wide but capped at 94vw, so on a narrow window the nav
+   column is what has to give: it shrinks to a rail and the rows are allowed to
+   wrap instead of overlapping or clipping. */
+.settings-nav {
+  width: 132px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .settings-nav {
+    width: 74px;
+  }
+  .settings-nav button {
+    padding-left: 10px !important;
+    padding-right: 4px !important;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .settings-row {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    row-gap: 6px;
+  }
+  .settings-row > .settings-row-label {
+    flex: 1 1 100%;
+  }
+  .settings-footer {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+}
+
 /* A queued destructive action: it does nothing until 保存并退出. */
 .pending-action {
   color: #e5484d !important;

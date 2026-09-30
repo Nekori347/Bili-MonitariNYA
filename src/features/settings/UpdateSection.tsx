@@ -105,8 +105,8 @@ export function UpdateSection() {
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-1.5 gap-3">
-      <span className="text-[12.5px]" style={{ color: "var(--text-2)" }}>{label}</span>
+    <div className="settings-row py-1.5">
+      <span className="settings-row-label text-[12.5px]" style={{ color: "var(--text-2)" }}>{label}</span>
       <div className="flex items-center gap-2">{children}</div>
     </div>
   );
