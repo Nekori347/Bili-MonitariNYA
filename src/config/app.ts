@@ -30,5 +30,18 @@ export const GITHUB_RELEASES_URL = GITHUB_REPO_URL ? `${GITHUB_REPO_URL}/release
 /** True once a real repository has been configured. */
 export const HAS_REPO = GITHUB_REPO_URL.length > 0;
 
+/**
+ * Addresses shown in the UI.
+ *
+ * While the repository name is still open these resolve to the author's GitHub
+ * rather than an `OWNER/REPO` placeholder — the entries are present and every
+ * link works; naming the repository is the only thing left to do, and both
+ * switch over automatically once `GITHUB_REPO` is filled in.
+ */
+export const PROJECT_URL = HAS_REPO ? GITHUB_REPO_URL : GITHUB_OWNER_URL;
+export const DOWNLOAD_URL = HAS_REPO
+  ? GITHUB_RELEASES_URL
+  : `${GITHUB_OWNER_URL}?tab=repositories`;
+
 /** Set once the licence is chosen; the row is hidden while it is empty. */
 export const LICENSE_NAME = "";

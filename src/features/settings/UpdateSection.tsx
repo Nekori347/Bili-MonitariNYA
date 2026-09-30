@@ -2,7 +2,7 @@ import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSettingsStore } from "../../store/settingsStore";
 import { checkForUpdate, installUpdate, type UpdateInfo } from "../../services/updater";
-import { GITHUB_RELEASES_URL, HAS_REPO } from "../../config/app";
+import { DOWNLOAD_URL } from "../../config/app";
 
 /** Update controls, plus a manual download path when the updater cannot run. */
 export function UpdateSection() {
@@ -57,17 +57,19 @@ export function UpdateSection() {
       <Row label="启动时检查一次">
         <Switch on={checkOnStart} onToggle={(v) => updateGlobal({ updateCheckOnStart: v })} />
       </Row>
+      <Row label="软件下载地址">
+        <button className="link-btn" onClick={() => void openUrl(DOWNLOAD_URL)}>
+          {DOWNLOAD_URL.replace(/^https?:\/\//, "")}
+        </button>
+      </Row>
 
       <div className="flex items-center gap-2 mt-1">
         <button className="btn text-xs" disabled={status === "checking" || status === "downloading"} onClick={() => void check()}>
           {status === "checking" ? "正在检查…" : "检查更新"}
         </button>
-        {/* Manual fallback appears once a releases page exists. */}
-        {HAS_REPO && (
-          <button className="btn text-xs" title="在浏览器中打开下载页" onClick={() => void openUrl(GITHUB_RELEASES_URL)}>
-            手动下载
-          </button>
-        )}
+        <button className="btn text-xs" title="在浏览器中打开下载页" onClick={() => void openUrl(DOWNLOAD_URL)}>
+          手动下载
+        </button>
         {status === "none" && <span className="text-[12px]" style={{ color: "var(--text-3)" }}>已是最新版本</span>}
         {status === "error" && <span className="text-[12px]" style={{ color: "#e5484d" }}>{error}</span>}
       </div>

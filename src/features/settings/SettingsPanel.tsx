@@ -33,11 +33,9 @@ import {
   APP_AUTHOR,
   APP_DISPLAY_NAME,
   AUTHOR_BILIBILI_URL,
-  GITHUB_OWNER,
-  GITHUB_OWNER_URL,
-  GITHUB_REPO_URL,
-  HAS_REPO,
+  DOWNLOAD_URL,
   LICENSE_NAME,
+  PROJECT_URL,
 } from "../../config/app";
 import { ChevronDown, ExternalLink, Plus, Undo, XIcon } from "../../components/ui/Icons";
 
@@ -676,20 +674,17 @@ function AboutSection() {
             <button className="link-btn" onClick={() => void openUrl(AUTHOR_BILIBILI_URL)}>{APP_AUTHOR}</button>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>GitHub</span>
-            <button className="link-btn" onClick={() => void openUrl(GITHUB_OWNER_URL)}>
-              {GITHUB_OWNER} <ExternalLink size={11} />
+            <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>项目地址</span>
+            <button className="link-btn" onClick={() => void openUrl(PROJECT_URL)}>
+              {PROJECT_URL.replace(/^https?:\/\//, "")} <ExternalLink size={11} />
             </button>
           </div>
-          {/* Only rendered once a repository actually exists — never a dead link. */}
-          {HAS_REPO && (
-            <div className="flex items-center gap-2">
-              <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>项目仓库</span>
-              <button className="link-btn" onClick={() => void openUrl(GITHUB_REPO_URL)}>
-                项目仓库 <ExternalLink size={11} />
-              </button>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>软件下载</span>
+            <button className="link-btn" onClick={() => void openUrl(DOWNLOAD_URL)}>
+              {DOWNLOAD_URL.replace(/^https?:\/\//, "")} <ExternalLink size={11} />
+            </button>
+          </div>
           {LICENSE_NAME && (
             <div className="flex items-center gap-2">
               <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>许可证</span>
