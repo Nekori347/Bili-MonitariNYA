@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { getSetting, setSetting } from "../services/database/settings";
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_VIDEO_FIELD_ORDER,
   type GlobalSettings,
   type PerUserSettings,
 } from "../types/settings";
@@ -31,7 +32,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   hydrate: async () => {
     const g = await getSetting<GlobalSettings>(SETTINGS_KEY);
     const p = await getSetting<Record<number, PerUserSettings>>(PER_USER_KEY);
-    const global = g ? { ...DEFAULT_SETTINGS, ...g, fields: { ...DEFAULT_SETTINGS.fields, ...(g.fields ?? {}) } } : { ...DEFAULT_SETTINGS };
+    const merged = g ? { ...DEFAULT_SETTINGS, ...g, fields: { ...DEFAULT_SETTINGS.fields, ...(g.fields ?? {}) } } : { ...DEFAULT_SETTINGS };
+    // Older saves may miss (or partially list) the video column order.
+    const stored = Array.isArray(merged.videoFieldOrder) ? merged.videoFieldOrder : [];
+    const known = stored.filter((k) => DEFAULT_VIDEO_FIELD_ORDER.includes(k));
+    const missing = DEFAULT_VIDEO_FIELD_ORDER.filter((k) => !known.includes(k));
+    const global: GlobalSettings = { ...merged, videoFieldOrder: [...known, ...missing] };
     set({ loaded: true, global, perUser: p ?? {} });
   },
 

@@ -1,19 +1,22 @@
-import { biliFetch, biliLimiter } from "./client";
+import { biliFetch, biliLimiter, isSelf } from "./client";
 import { ENDPOINTS } from "./endpoints";
 import {
   normalizeCardProfile,
   normalizeDecoration,
+  normalizeMedalWall,
   normalizeOnline,
   normalizeProfile,
   normalizeRelationStat,
   normalizeUpStat,
   normalizeVideoDetail,
   normalizeVideoSummary,
+  toHttpsUrl,
 } from "./normalize";
 import { signWbi } from "./wbi";
 import {
   BiliError,
   type DynamicDecoration,
+  type FansMedal,
   type OnlineStats,
   type UserIdentity,
   type UserProfile,
@@ -159,6 +162,45 @@ export const BilibiliAdapter = {
     throw new BiliError("network", "获取用户资料失败");
   },
 
+  /**
+   * The custom space banner. Only the signed-in owner can read it: Bilibili
+   * exposes it through `/x/space/v2/myinfo` (field `toutu`), which needs the
+   * session cookie and always describes the caller's own space.
+   * Returns undefined for anyone else, so callers keep the public fallback.
+   */
+  async getSelfBanner(mid: number): Promise<string | undefined> {
+    if (!isSelf(mid)) return undefined;
+    try {
+      const params = await signWbi({ web_location: "333.1387" });
+      const raw = await getJson(ENDPOINTS.myInfo, params);
+      if (raw?.code !== 0 || !raw?.data) return undefined;
+      const d = raw.data;
+      const url =
+        d.toutu?.l_img ||
+        d.theme?.toutu ||
+        d.theme_preview_img_path ||
+        d.toutu?.s_img ||
+        undefined;
+      return url ? toHttpsUrl(String(url)) : undefined;
+    } catch {
+      return undefined;
+    }
+  },
+
+  /**
+   * 粉丝勋章墙 — supplies the real v2 medal gradient. Requires login; when the
+   * wall is unavailable we return null and the profile keeps its own medal.
+   */
+  async getFansMedal(mid: number): Promise<FansMedal | null> {
+    try {
+      const raw = await getJson(ENDPOINTS.medalWall, [["target_id", String(mid)]]);
+      if (raw?.code !== 0) return null;
+      return normalizeMedalWall(raw);
+    } catch {
+      return null;
+    }
+  },
+
   async getUserStats(mid: number): Promise<UserStats> {
     const stats: UserStats = {
       mid,
@@ -177,12 +219,19 @@ export const BilibiliAdapter = {
       /* leave zeros */
     }
 
-    // UP 主总播放 / 获赞 — may require login; degrade gracefully.
-    try {
-      const up = await getJson(ENDPOINTS.upStat, [["mid", String(mid)]]);
-      if (up?.code === 0) Object.assign(stats, normalizeUpStat(up, mid));
-    } catch {
-      /* leave null -> UI shows 暂不可用 */
+    // UP 主总播放 / 获赞 — needs a login session and is risk-controlled, so it
+    // gets a couple of spaced attempts before degrading to null.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const up = await getJson(ENDPOINTS.upStat, [["mid", String(mid)]]);
+        if (up?.code === 0) {
+          Object.assign(stats, normalizeUpStat(up, mid));
+          break;
+        }
+      } catch {
+        /* retry once, then leave null */
+      }
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 4000));
     }
 
     // 投稿数 via card endpoint.
@@ -327,8 +376,12 @@ const DEFAULT_BANNERS = [
   "LRjqHhi0wL",
 ];
 
+export function isDefaultBannerUrl(url: string | undefined): boolean {
+  return !!url && DEFAULT_BANNERS.some((marker) => url.includes(marker));
+}
+
 function isDefaultBanner(url: string): boolean {
-  return DEFAULT_BANNERS.some((marker) => url.includes(marker));
+  return isDefaultBannerUrl(url);
 }
 
 /**

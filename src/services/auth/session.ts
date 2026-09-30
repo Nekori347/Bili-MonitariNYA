@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import { setSessionCookie } from "../bilibili/client";
+import { setSessionCookie, setSessionMid } from "../bilibili/client";
+
+/** Keep the HTTP layer aware of which account the session belongs to. */
+export function markSessionAccount(mid: number | null): void {
+  setSessionMid(mid);
+}
 
 /**
  * Session cookie holder.
@@ -86,6 +91,7 @@ export async function restoreSession(): Promise<boolean> {
 export async function clearSession(): Promise<void> {
   cookie = null;
   setSessionCookie(null);
+  setSessionMid(null);
   if (isTauri()) {
     try {
       await invoke("delete_credential");

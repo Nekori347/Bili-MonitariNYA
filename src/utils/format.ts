@@ -19,6 +19,11 @@ export function formatDelta(delta: number): string {
   return `${sign}${formatCount(abs)}`;
 }
 
+/** Spaced variant for prose, e.g. "16 小时" / "25 分钟" / "3 天". */
+export function formatAgoSpaced(ts: number): string {
+  return formatAgo(ts).replace(/^(\d+)(\D+)$/, "$1 $2");
+}
+
 export function formatDate(ts: number): string {
   const d = new Date(ts * 1000);
   const now = new Date();

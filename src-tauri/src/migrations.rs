@@ -1,8 +1,13 @@
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 /// Versioned SQLite migrations, run automatically on startup.
+///
+/// NEVER rebuild the database on upgrade — user subscriptions, remarks,
+/// settings, growth history and the login credential must survive app updates.
+/// Add a new `Migration` entry for every schema change instead.
 pub fn migrations() -> Vec<Migration> {
-    vec![Migration {
+    vec![
+        Migration {
         version: 1,
         description: "initial_schema",
         sql: r#"
@@ -53,5 +58,28 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 "#,
         kind: MigrationKind::Up,
-    }]
+        },
+        Migration {
+            version: 2,
+            description: "sidebar_order_and_stats_snapshots",
+            sql: r#"
+-- Manual ordering of the subscription list (sidebar drag & drop).
+ALTER TABLE subscriptions ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+
+-- Day/week/month growth for the profile stats row (following/follower/...).
+CREATE TABLE IF NOT EXISTS stats_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mid INTEGER NOT NULL,
+    captured_at INTEGER NOT NULL,
+    following INTEGER,
+    follower INTEGER,
+    likes INTEGER,
+    total_views INTEGER,
+    video_count INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_stats_snapshot_mid_time ON stats_snapshots (mid, captured_at);
+"#,
+            kind: MigrationKind::Up,
+        },
+    ]
 }

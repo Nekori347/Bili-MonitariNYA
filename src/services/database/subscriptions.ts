@@ -6,6 +6,7 @@ export interface Subscription {
   addedAt: number;
   enabled: boolean;
   videoLimit: number;
+  sortOrder: number;
   customSettingsJson: string | null;
   remark?: string;
   lastSeenLatestBvid?: string;
@@ -29,6 +30,7 @@ function mapRow(row: any): Subscription {
     addedAt: Number(row.added_at ?? 0),
     enabled: Number(row.enabled ?? 1) === 1,
     videoLimit: Number(row.video_limit ?? 20),
+    sortOrder: Number(row.sort_order ?? 0),
     customSettingsJson: json,
     remark: cs.remark,
     lastSeenLatestBvid: cs.lastSeenLatestBvid,
@@ -58,10 +60,23 @@ export async function markSeen(mid: number, latestBvid: string): Promise<void> {
   await patchCustom(mid, { lastSeenLatestBvid: latestBvid, hasUnreadUpdate: false });
 }
 
+/**
+ * Subscriptions in display order. `sort_order` is written by sidebar drag &
+ * drop; legacy rows (and brand-new ones) all sit at 0, so `added_at` breaks
+ * the tie and keeps the original order until the user rearranges anything.
+ */
 export async function listSubscriptions(): Promise<Subscription[]> {
   const db = await getDb();
-  const rows: any[] = await db.select("SELECT * FROM subscriptions ORDER BY added_at ASC");
+  const rows: any[] = await db.select("SELECT * FROM subscriptions ORDER BY sort_order ASC, added_at ASC");
   return rows.map(mapRow);
+}
+
+/** Persist a new manual order (array of mids, top to bottom). */
+export async function saveSubscriptionOrder(mids: number[]): Promise<void> {
+  const db = await getDb();
+  for (let i = 0; i < mids.length; i++) {
+    await db.execute("UPDATE subscriptions SET sort_order = $1 WHERE mid = $2", [i, mids[i]]);
+  }
 }
 
 export async function getSubscription(mid: number): Promise<Subscription | null> {
@@ -97,6 +112,7 @@ export async function updateSubscription(mid: number, patch: Partial<Subscriptio
   if (patch.enabled !== undefined) set("enabled", patch.enabled ? 1 : 0);
   if (patch.videoLimit !== undefined) set("video_limit", patch.videoLimit);
   if (patch.customSettingsJson !== undefined) set("custom_settings_json", patch.customSettingsJson);
+  if (patch.sortOrder !== undefined) set("sort_order", patch.sortOrder);
   if (fields.length === 0) return;
   values.push(mid);
   await db.execute(`UPDATE subscriptions SET ${fields.join(", ")} WHERE mid = $${values.length}`, values);
@@ -107,6 +123,7 @@ export async function removeSubscription(mid: number): Promise<void> {
   await db.execute("DELETE FROM subscriptions WHERE mid = $1", [mid]);
   await db.execute("DELETE FROM videos WHERE mid = $1", [mid]);
   await db.execute("DELETE FROM video_snapshots WHERE mid = $1", [mid]);
+  await db.execute("DELETE FROM stats_snapshots WHERE mid = $1", [mid]);
   await db.execute("DELETE FROM users_cache WHERE mid = $1", [mid]);
   // Remove the user's cached asset directory (avatar/banner/pendant/...).
   try {
@@ -114,6 +131,28 @@ export async function removeSubscription(mid: number): Promise<void> {
     await invoke("clear_user_cache", { mid: String(mid) });
   } catch {
     /* ignore if not in Tauri */
+  }
+}
+
+/**
+ * Delete several subscriptions as one awaited batch. Nothing is removed from
+ * the UI until every table has been written, so a failure leaves the caller's
+ * pending list intact and re-runnable.
+ */
+export async function removeSubscriptions(mids: number[]): Promise<void> {
+  if (mids.length === 0) return;
+  const db = await getDb();
+  const placeholders = mids.map((_, i) => `$${i + 1}`).join(", ");
+  await db.execute(`DELETE FROM subscriptions WHERE mid IN (${placeholders})`, mids);
+  await db.execute(`DELETE FROM videos WHERE mid IN (${placeholders})`, mids);
+  await db.execute(`DELETE FROM video_snapshots WHERE mid IN (${placeholders})`, mids);
+  await db.execute(`DELETE FROM stats_snapshots WHERE mid IN (${placeholders})`, mids);
+  await db.execute(`DELETE FROM users_cache WHERE mid IN (${placeholders})`, mids);
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    for (const mid of mids) await invoke("clear_user_cache", { mid: String(mid) });
+  } catch {
+    /* cached files are best-effort */
   }
 }
 

@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { Providers } from "./providers";
 import { useSubscriptions } from "../queries/subscriptions";
 import { useUIStore } from "../store/uiStore";
@@ -63,6 +63,52 @@ function useWindowStateEffect() {
   useEffect(() => {
     if (loaded) void setCloseBehavior(closeToTray);
   }, [loaded, closeToTray]);
+}
+
+/** Shared refresh flag, so every trigger drives the one progress bar. */
+function useAutoProgress() {
+  const refreshing = useUIStore((s) => s.refreshing);
+  const setRefreshing = useUIStore((s) => s.setRefreshing);
+  const isFetching = useIsFetching();
+  const busy = refreshing || isFetching > 0;
+  const timer = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (refreshing) {
+      if (timer.current != null) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setRefreshing(false), 1500);
+    }
+    return () => {
+      if (timer.current != null) window.clearTimeout(timer.current);
+    };
+  }, [refreshing, setRefreshing]);
+
+  return busy;
+}
+
+/** Silent update check shortly after launch (never blocks or interrupts). */
+function useUpdateCheck() {
+  const loaded = useSettingsStore((s) => s.loaded);
+  const enabled = useSettingsStore((s) => s.global.updateCheckOnStart);
+  const autoCheck = useSettingsStore((s) => s.global.updateAutoCheck);
+  const showToast = useUIStore((s) => s.showToast);
+  const ran = useRef(false);
+
+  useEffect(() => {
+    if (!loaded || ran.current || !enabled || !autoCheck) return;
+    ran.current = true;
+    const t = window.setTimeout(() => {
+      void import("../services/updater")
+        .then(({ checkForUpdate }) => checkForUpdate())
+        .then((info) => {
+          if (info) showToast(`发现新版本 ${info.version}，可在 设置 → 系统 → 自动更新 中安装`);
+        })
+        .catch(() => {
+          /* offline / not configured — stay quiet */
+        });
+    }, 8000);
+    return () => window.clearTimeout(t);
+  }, [loaded, enabled, autoCheck, showToast]);
 }
 
 /** Restore the DPAPI-encrypted Bilibili session once settings are ready. */
@@ -140,17 +186,35 @@ function ToastHost() {
   );
 }
 
+/** Window width below which the sidebar is forced into its mini form, so the
+ *  video row still fits every metric column without clipping. */
+const AUTO_MINI_BELOW = 460;
+
+function useWindowWidth(): number {
+  const [w, setW] = useState(() => (typeof window === "undefined" ? 800 : window.innerWidth));
+  useEffect(() => {
+    const onResize = () => setW(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return w;
+}
+
 function Main() {
   useThemeEffect();
   useWindowStateEffect();
   useAuthEffect();
+  useUpdateCheck();
   useTrayEvents();
   const { data: subs, isLoading } = useSubscriptions();
   const selectedMid = useUIStore((s) => s.selectedMid);
   const setSelectedMid = useUIStore((s) => s.setSelectedMid);
   const addOpen = useUIStore((s) => s.addOpen);
   const settingsOpen = useUIStore((s) => s.settingsOpen);
-  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
+  const sidebarCollapsedState = useUIStore((s) => s.sidebarCollapsed);
+  const windowWidth = useWindowWidth();
+  const locked = windowWidth < AUTO_MINI_BELOW;
+  const sidebarCollapsed = sidebarCollapsedState || locked;
 
   useEffect(() => {
     if (subs && subs.length > 0 && selectedMid == null) {
@@ -171,7 +235,7 @@ function Main() {
         <div className="accent-bar" />
         <Titlebar />
         <div className="flex flex-1 min-h-0 relative">
-          <Sidebar subs={subs ?? []} loading={isLoading} collapsed={sidebarCollapsed} />
+          <Sidebar subs={subs ?? []} loading={isLoading} collapsed={sidebarCollapsed} locked={locked} />
           <main className="flex-1 min-w-0 p-2.5 flex flex-col min-h-0">
             {!hasSubs ? (
               <EmptyState />
@@ -192,18 +256,12 @@ function Main() {
   );
 }
 
+/** The single 2px progress line between the profile card and the video list. */
 function RefreshProgress() {
-  const refreshing = useUIStore((s) => s.refreshing);
+  const busy = useAutoProgress();
   return (
-    <div className="flex-none" style={{ height: 2, overflow: "hidden" }}>
-      <div
-        className="h-full rounded-full"
-        style={{
-          background: "#fb7299",
-          opacity: refreshing ? 1 : 0,
-          transition: "opacity 0.2s ease",
-        }}
-      />
+    <div className="flex-none refresh-line" style={{ height: 2 }}>
+      <div className={`refresh-fill${busy ? " on" : ""}`} />
     </div>
   );
 }

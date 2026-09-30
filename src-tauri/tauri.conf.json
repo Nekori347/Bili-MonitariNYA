@@ -16,7 +16,7 @@
         "label": "main",
         "width": 480,
         "height": 720,
-        "minWidth": 380,
+        "minWidth": 360,
         "minHeight": 600,
         "decorations": false,
         "transparent": true,
@@ -29,13 +29,21 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPCACHE/**", "$APPDATA/**", "$APPLOCALDATA/**", "$RESOURCE/**"]
+        "scope": [
+          "$APPCACHE/**",
+          "$APPDATA/**",
+          "$APPLOCALDATA/**",
+          "$RESOURCE/**"
+        ]
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -43,5 +51,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/OWNER/REPO/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVFN0NBOTNDMTEzNTBCMDEKUldRQkN6VVJQS2w4N3NIS29FT1h5TlpuR0pMbE9IaVNzL2xkczlFSXRCTjdVblNsck5NVmlEYWEK"
+    }
   }
 }

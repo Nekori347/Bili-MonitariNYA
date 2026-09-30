@@ -1,5 +1,6 @@
 import type {
   DynamicDecoration,
+  FansMedal,
   OnlineStats,
   UserProfile,
   UserStats,
@@ -43,6 +44,20 @@ function toHexColor(v: any): string | undefined {
     return "#" + (v & 0xffffff).toString(16).padStart(6, "0");
   }
   return undefined;
+}
+
+/** Normalize any Bilibili asset URL/relative path to https. */
+export function toHttpsUrl(v: unknown): string | undefined {
+  if (!v) return undefined;
+  const s = String(v).trim();
+  if (!s) return undefined;
+  const http = s.replace(/^http:\/\//, "https://");
+  if (http.startsWith("https://")) return http;
+  if (http.startsWith("//")) return "https:" + http;
+  if (http.startsWith("bfs/") || http.startsWith("/bfs/")) {
+    return "https://i0.hdslb.com/" + http.replace(/^\/+/, "");
+  }
+  return "https://i0.hdslb.com/bfs/" + http.replace(/^\/+/, "");
 }
 
 /** Bilibili space banner URL is a relative path (bfs/space/xxx.png). */
@@ -97,12 +112,68 @@ function buildProfile(d: any, mid: number): UserProfile {
       ? {
           name: String(medal.medal_name),
           level: Number(medal.level ?? 0),
-          colorStart: toHexColor(medal.medal_color_start),
-          colorEnd: toHexColor(medal.medal_color_end),
+          medalId: medal.medal_id != null ? Number(medal.medal_id) : undefined,
+          // acc/info only carries a single flat color; MedalWall refines it later.
+          colorStart: toHexColor(medal.medal_color_start ?? medalDetail.medal_color_start),
+          colorEnd: toHexColor(medal.medal_color_end ?? medalDetail.medal_color_end),
           colorBorder: toHexColor(medal.medal_color_border ?? medalDetail.medal_color_border),
+          colorText: toHexColor(medalDetail.medal_color_name),
+          wearing: fansMedal.wear === true || undefined,
         }
       : undefined,
   };
+}
+
+/**
+ * MedalWall (`/xlive/web-ucenter/user/MedalWall?target_id=`) — the only place
+ * that carries the real per-medal `v2_medal_color_*` gradient. Entries are
+ * matched to the profile's medal by id, falling back to the worn medal.
+ */
+export function normalizeMedalWall(raw: any): FansMedal | null {
+  const list: any[] = raw?.data?.list ?? [];
+  if (!Array.isArray(list) || list.length === 0) return null;
+
+  let best: any = null;
+  for (const item of list) {
+    const info = item?.medal_info;
+    if (!info) continue;
+    const uid = Number(info.target_id ?? info.uid ?? 0);
+    const target = Number(raw?.data?.target_id ?? 0);
+    if (!best) best = item;
+    if (target && uid === target) {
+      best = item;
+      break;
+    }
+  }
+  if (!best) return null;
+
+  const info = best.medal_info ?? {};
+  const u = best.uinfo_medal ?? {};
+  const v2 = (key: string): string | undefined => {
+    const v = u[key];
+    return typeof v === "string" && v.trim() ? v.trim() : undefined;
+  };
+  // v2 colours arrive as "#AARRGGBB"; toHexColor normalises them to "#RRGGBB".
+  // v2 always wins — the legacy flat colour must never override it.
+  const col = (v2Key: string, legacy: any): string | undefined => {
+    const modern = v2(v2Key);
+    if (modern) return toHexColor(modern) ?? modern;
+    return toHexColor(legacy);
+  };
+
+  const medal: FansMedal = {
+    name: String(info.medal_name ?? u.medal_name ?? ""),
+    level: Number(info.level ?? info.medal_level ?? u.level ?? 0),
+    medalId: info.medal_id != null ? Number(info.medal_id) : undefined,
+    colorStart: col("v2_medal_color_start", info.medal_color_start),
+    colorEnd: col("v2_medal_color_end", info.medal_color_end),
+    colorBorder: col("v2_medal_color_border", info.medal_color_border),
+    colorText: col("v2_medal_color_text", undefined),
+    colorLevel: col("v2_medal_color_level", undefined),
+    wearing: true,
+  };
+  if (!medal.name && !medal.colorStart) return null;
+  return medal;
 }
 
 export function normalizeRelationStat(raw: any, mid: number): Partial<UserStats> {

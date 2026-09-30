@@ -28,6 +28,19 @@ export interface FieldVisibility {
   growthMonth: boolean;
 }
 
+/** Per-video meta columns the user can reorder in settings. */
+export type VideoFieldKey = "view" | "like" | "coin" | "online" | "pubdate";
+
+export const VIDEO_FIELD_LABELS: Record<VideoFieldKey, string> = {
+  view: "播放量",
+  like: "点赞量",
+  coin: "投币量",
+  online: "在线人数",
+  pubdate: "投稿时间",
+};
+
+export const DEFAULT_VIDEO_FIELD_ORDER: VideoFieldKey[] = ["view", "like", "coin", "online", "pubdate"];
+
 export interface GlobalSettings {
   videoLimit: number;
   theme: ThemeMode;
@@ -40,6 +53,18 @@ export interface GlobalSettings {
   growthPeriod: "day" | "week" | "month"; // 增长周期
   sidebarWidth: number; // 展开 Sidebar 宽度（140-260）
   fields: FieldVisibility;
+  /** Video meta column order (drag & drop in settings). */
+  videoFieldOrder: VideoFieldKey[];
+  /** Column pinned to the far right of the video row. */
+  videoPinnedRight: VideoFieldKey;
+  /** Profile card collapsed to a thin header. */
+  profileCollapsed: boolean;
+  /** Show the pink "new post" dot. */
+  newPostBadge: boolean;
+  /** Check GitHub Releases for a newer version. */
+  updateAutoCheck: boolean;
+  /** Silently check once shortly after launch. */
+  updateCheckOnStart: boolean;
 }
 
 export interface PerUserSettings {
@@ -87,6 +112,12 @@ export const DEFAULT_SETTINGS: GlobalSettings = {
   growthPeriod: "day",
   sidebarWidth: 208,
   fields: { ...DEFAULT_FIELDS },
+  videoFieldOrder: [...DEFAULT_VIDEO_FIELD_ORDER],
+  videoPinnedRight: "pubdate",
+  profileCollapsed: false,
+  newPostBadge: true,
+  updateAutoCheck: true,
+  updateCheckOnStart: true,
 };
 
 export const FIELD_LABELS: Record<keyof FieldVisibility, string> = {

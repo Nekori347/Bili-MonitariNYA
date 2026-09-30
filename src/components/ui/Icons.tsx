@@ -152,6 +152,13 @@ export const ExternalLink = (p: P) => (
     <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
   </Svg>
 );
+/** Three bars — the sidebar's drag handle. */
+export const Grip = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </Svg>
+);
+
 export const Trash = (p: P) => (
   <Svg {...p}>
     <path d="M3 6h18" />

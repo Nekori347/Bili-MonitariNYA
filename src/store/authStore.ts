@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { BilibiliAdapter } from "../services/bilibili/adapter";
-import { clearSession, persistSession, restoreSession } from "../services/auth/session";
+import { clearSession, markSessionAccount, persistSession, restoreSession } from "../services/auth/session";
 import { useSettingsStore } from "./settingsStore";
 
 export interface BiliAccount {
@@ -27,6 +27,7 @@ interface AuthState {
 async function resolveAccount(): Promise<BiliAccount | null> {
   const nav = await BilibiliAdapter.getNavInfo();
   if (!nav || !nav.isLogin) return null;
+  markSessionAccount(nav.mid);
   return { mid: nav.mid, name: nav.name, face: nav.face };
 }
 

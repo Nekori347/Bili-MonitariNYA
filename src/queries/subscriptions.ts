@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listSubscriptions,
   removeSubscription,
+  removeSubscriptions,
+  saveSubscriptionOrder,
   upsertSubscription,
   updateSubscription,
   type Subscription,
@@ -45,6 +47,28 @@ export function useRemoveSubscription() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (mid: number) => removeSubscription(mid),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: subscriptionKeys.all });
+    },
+  });
+}
+
+/** Batch delete used by the sidebar's delete mode (awaited, all-or-nothing). */
+export function useRemoveSubscriptions() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (mids: number[]) => removeSubscriptions(mids),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: subscriptionKeys.all });
+    },
+  });
+}
+
+/** Persist a drag & drop reorder of the sidebar list. */
+export function useSaveSubscriptionOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (mids: number[]) => saveSubscriptionOrder(mids),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: subscriptionKeys.all });
     },

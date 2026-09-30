@@ -24,6 +24,8 @@ interface FetchRequest {
 const DEVICE_KEY = "bili_device_cookie";
 
 let sessionCookie: string | null = null;
+/** The logged-in mid, when known — lets the adapter use owner-only endpoints. */
+let sessionMid: number | null = null;
 let deviceCookie: string | null = readDeviceCookie();
 let devicePending: Promise<void> | null = null;
 
@@ -46,6 +48,16 @@ function writeDeviceCookie(value: string) {
 /** Set (or clear) the login session cookie. Never logged. */
 export function setSessionCookie(cookie: string | null) {
   sessionCookie = cookie;
+}
+
+/** Record which account the session belongs to (null when signed out). */
+export function setSessionMid(mid: number | null) {
+  sessionMid = mid;
+}
+
+/** True when the given mid is the account we are logged in as. */
+export function isSelf(mid: number): boolean {
+  return sessionMid != null && sessionMid === mid;
 }
 
 export function getRequestCookie(): string | null {

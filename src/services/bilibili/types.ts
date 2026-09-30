@@ -23,13 +23,24 @@ export interface UserProfile {
   pendantUrl?: string; // avatar frame (image_enhance preferred)
   nameplateUrl?: string; // nameplate badge image
   nameplateName?: string;
-  fansMedal?: {
-    name: string;
-    level: number;
-    colorStart?: string;
-    colorEnd?: string;
-    colorBorder?: string;
-  };
+  fansMedal?: FansMedal;
+}
+
+/**
+ * 粉丝勋章. Colors come from MedalWall's `v2_*` fields when available (the real
+ * gradient Bilibili renders); `show`/`wear` tell us whether to display at all.
+ */
+export interface FansMedal {
+  name: string;
+  level: number;
+  medalId?: number;
+  colorStart?: string;
+  colorEnd?: string;
+  colorBorder?: string;
+  colorText?: string;
+  /** Per-level text color (v2_medal_color_level) — used by the level number. */
+  colorLevel?: string;
+  wearing?: boolean;
 }
 
 export interface UserStats {

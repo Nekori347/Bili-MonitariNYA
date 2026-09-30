@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { BilibiliAdapter } from "../services/bilibili/adapter";
 import type { DynamicDecoration, UserProfile, UserStats } from "../services/bilibili/types";
 import { getUserCache, setUserCacheProfile, setUserCacheStats } from "../services/database/usersCache";
+import { insertStatsSnapshot } from "../services/database/statsSnapshots";
+import { isDefaultBannerUrl } from "../services/bilibili/adapter";
 import { useDelayedReady } from "../utils/useDelayedReady";
 import { profileInterval } from "../utils/refresh";
 import { useUIStore } from "../store/uiStore";
@@ -54,9 +56,23 @@ export function useUserProfile(mid: number, isForeground: boolean) {
     queryKey: profileKeys.profile(mid),
     queryFn: async () => {
       const fresh = await BilibiliAdapter.getUserProfile(mid);
-      // Never overwrite a previously-successful asset (banner/pendant/fans_medal)
-      // with an empty value when the current fetch fell back to the card endpoint.
       const old = await getUserCache(mid).catch(() => null);
+
+      // The real custom space banner is only readable by its owner, so for the
+      // signed-in account try that first; otherwise keep whatever public banner
+      // we already had cached rather than dropping back to Bilibili's stock art.
+      const selfBanner = await BilibiliAdapter.getSelfBanner(mid).catch(() => undefined);
+      if (selfBanner) fresh.topPhoto = selfBanner;
+      else if (old?.profile?.topPhoto && isDefaultBannerUrl(fresh.topPhoto)) {
+        fresh.topPhoto = old.profile.topPhoto;
+      }
+
+      // MedalWall carries the real v2 medal gradient; only overwrite with it.
+      const wallMedal = await BilibiliAdapter.getFansMedal(mid).catch(() => null);
+      if (wallMedal) fresh.fansMedal = { ...fresh.fansMedal, ...wallMedal };
+
+      // Never overwrite a previously-successful asset with an empty value when
+      // the current fetch fell back to the card endpoint.
       if (old?.profile) {
         if (!fresh.topPhoto && old.profile.topPhoto) fresh.topPhoto = old.profile.topPhoto;
         if (!fresh.pendantUrl && old.profile.pendantUrl) fresh.pendantUrl = old.profile.pendantUrl;
@@ -82,6 +98,8 @@ export function useUserStats(mid: number, isForeground: boolean) {
     queryFn: async () => {
       const fresh = await BilibiliAdapter.getUserStats(mid);
       void setUserCacheStats(mid, fresh).catch(() => {});
+      // Growth history for the stats row (day/week/month).
+      void insertStatsSnapshot(mid, fresh).catch(() => {});
       return fresh;
     },
     staleTime: STATS_STALE,

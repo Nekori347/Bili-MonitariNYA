@@ -20,6 +20,10 @@ export const ENDPOINTS = {
   onlineTotal: "https://api.bilibili.com/x/player/online/total",
   /** 用户空间动态 (取装扮卡片) */
   dynamicSpace: "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space",
+  /** 当前登录账号自己的空间信息（含自定义头图 toutu / theme） */
+  myInfo: "https://api.bilibili.com/x/space/v2/myinfo",
+  /** 粉丝勋章墙（v2 颜色，需要登录） */
+  medalWall: "https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall",
 } as const;
 
 export const WEB_BASE = "https://www.bilibili.com";
@@ -35,4 +39,15 @@ export function videoSpaceUrl(mid: number): string {
 
 export function videoUrl(bvid: string): string {
   return `${WEB_BASE}/video/${bvid}`;
+}
+
+/**
+ * Bilibili serves pre-cropped cover variants via an `@<w>w_<h>h_1c.<fmt>`
+ * suffix. Wide rows want 16:9, the narrow breakpoint wants the 4:3 preview.
+ */
+export function coverUrl(raw: string, ratio: "16:9" | "4:3"): string {
+  if (!raw) return raw;
+  const base = raw.split("@")[0];
+  const crop = ratio === "4:3" ? "@480w_360h_1c.webp" : "@672w_378h_1c.webp";
+  return base + crop;
 }

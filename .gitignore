@@ -4,3 +4,11 @@ src-tauri/target
 src-tauri/gen
 *.log
 .DS_Store
+
+# Tauri updater signing keys — the private key must NEVER be committed.
+.tauri/
+*.key
+*.key.pub
+
+# local scratch
+.tmp/

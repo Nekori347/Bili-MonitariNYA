@@ -64,6 +64,24 @@ npm run tauri build
 
 凭据（登录 Cookie）使用 **Windows DPAPI** 加密后写入 `%APPDATA%\com.biliupmonitor.app\credentials.bin`，只有当前 Windows 用户可解密；不写数据库、不打印日志、不上传。点击「退出登录」会删除本地凭据。不登录不影响核心监控功能。
 
+## 设置页
+
+三级结构：左侧一级分类（外观 / 订阅 / 用户名片 / 视频 / 数据 / 系统）→ 顶部二级 Tab →
+可折叠三级 Section。底部固定 `[恢复默认]            [取消] [保存并退出]`。
+
+- 「用户名片」「视频」的字段开关使用**成品 Preview 映射开关**：直接点预览里的元素即可开关该字段，
+  不再铺满 Switch；
+- 「视频」分类里可以拖动调整字段顺序，并单独指定「固定到最右」；
+- 「系统 → 自动更新」可开关自动检查 / 启动时检查，并手动检查更新。
+
+## 自动更新（GitHub Releases）
+
+代码结构已就绪（`createUpdaterArtifacts = true` + Tauri updater），发布时把
+`src-tauri/tauri.conf.json` 里的 endpoint 换成自己的仓库地址即可。签名密钥已生成在
+`.tauri/`（**已 gitignore，请不要提交私钥**）。完整流程见 [`scripts/RELEASE.md`](scripts/RELEASE.md)。
+
+更新只替换程序安装文件，不会清空订阅 / 备注 / 设置 / 历史增长 / B 站登录 / 缓存。
+
 ## 数据保存位置
 
 - SQLite 数据库：`%APPDATA%\com.biliupmonitor.app\biliupmonitor.db`（由 Tauri 插件自动创建并执行 migration，无需手动初始化）
