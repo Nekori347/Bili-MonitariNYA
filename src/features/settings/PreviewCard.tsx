@@ -1,7 +1,6 @@
 import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { ProfileCardView } from "../profile-card/ProfileCard";
 import { useCachedAsset } from "../../utils/useCachedAsset";
-import { useSnapshot } from "../../store/dashboardStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { EMPTY_GROWTH, type StatsGrowthMap } from "../../utils/growth";
 import type { UserProfile, UserStats } from "../../services/bilibili/types";
@@ -40,6 +39,7 @@ const SIMPLE_USER: UserProfile = {
   vipType: 1,
   vipLabel: "大会员",
   official: { title: "个人认证", type: 0, role: 1 },
+  nameplateName: "勋章",
   fansMedal: {
     name: "粉丝牌",
     level: 12,
@@ -83,30 +83,22 @@ export function PreviewCard({
   mid,
   fields,
   onToggle,
-  neutral,
 }: {
   mid: number | null;
   fields: FieldVisibility;
   onToggle: (k: keyof FieldVisibility, v: boolean) => void;
-  neutral: boolean;
 }) {
-  const snapshot = useSnapshot(neutral ? -1 : mid ?? -1);
+  // Always the anonymous sample: a settings preview explains what the template
+  // looks like, never what the currently selected UP would become.
   const period = useSettingsStore((s) => s.global.growthPeriod);
+  const profile = SIMPLE_USER;
+  const stats = SIMPLE_STATS;
+  const growth = SIMPLE_GROWTH;
+  void mid;
 
-  const live = neutral ? undefined : snapshot;
-  const profile = live?.profile ?? SIMPLE_USER;
-  const stats = live?.stats ?? SIMPLE_STATS;
-  const decoration = live?.decoration ?? null;
-  const growth = live?.statsGrowth ?? SIMPLE_GROWTH;
-  const previewMid = live?.profile ? (mid ?? 0) : 0;
-
-  const banner = useCachedAsset(profile.topPhoto, `users/${previewMid}/banner`);
-  const face = useCachedAsset(profile.face, `users/${previewMid}/avatar`);
-  const pendant = useCachedAsset(profile.pendantUrl, `users/${previewMid}/pendant`);
-  const decorationImg = useCachedAsset(
-    decoration?.imageEnhance ?? decoration?.cardUrl,
-    `users/${previewMid}/decoration`,
-  );
+  const banner = useCachedAsset(profile.topPhoto, "users/0/banner");
+  const face = useCachedAsset(profile.face, "users/0/avatar");
+  const pendant = useCachedAsset(profile.pendantUrl, "users/0/pendant");
 
   const zone = useMemo(
     () =>
@@ -138,13 +130,16 @@ export function PreviewCard({
   return (
     <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--line)" }}>
       <ProfileCardView
-        mid={previewMid}
+        mid={0}
         profile={profile}
         stats={stats}
-        decoration={decoration}
+        /* No decoration on purpose: the anonymous sample must not carry a real
+           装扮编号. The preview shows the placeholder slot instead. */
+        decoration={null}
+        remark="备注名"
         fields={fields}
         growth={growth}
-        assets={{ banner, face, pendant, decoration: decorationImg }}
+        assets={{ banner, face, pendant }}
         preview
         zone={zone}
         period={period}

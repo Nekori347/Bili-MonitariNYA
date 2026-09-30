@@ -237,28 +237,37 @@ export function ProfileCardView({
           <div className="min-w-0" style={{ paddingBottom: 7 }}>
             {/* row 1: name block · sex · vip */}
             <div className="flex items-center" style={{ gap: 4 }}>
-              {shown("name") && z(
-                "name",
-                remark ? (
-                  <div className="min-w-0 flex flex-col justify-center" style={{ lineHeight: 1.15 }}>
+              {/* 备注 and 用户名 are separate switches: the remark is its own
+                  line, the account name its own, and each is its own preview
+                  zone. With no remark the name simply takes the whole line and
+                  grows back to its single-line size. */}
+              {(shown("name") || (remark && shown("remark"))) && (
+                <div className="min-w-0 flex flex-col justify-center" style={{ lineHeight: 1.15 }}>
+                  {remark && shown("remark") && z(
+                    "remark",
                     <button className="block truncate text-left font-semibold text-[14px] cursor-pointer hover:underline"
-                      style={{ color: profile.nicknameColor || "var(--text)" }}
+                      style={{ color: "var(--text)" }}
                       onClick={() => open(spaceUrl(mid))}>
                       {remark}
-                    </button>
-                    <button className="block truncate text-left text-[10.5px] cursor-pointer hover:underline"
-                      style={{ color: "var(--text-3)" }}
-                      onClick={() => open(spaceUrl(mid))}>
-                      {profile.name}
-                    </button>
-                  </div>
-                ) : (
-                  <button className="font-semibold text-[15px] truncate cursor-pointer hover:underline"
-                    style={{ color: profile.nicknameColor || "var(--text)", maxWidth: 150 }}
-                    onClick={() => open(spaceUrl(mid))}>
-                    {profile.name}
-                  </button>
-                ),
+                    </button>,
+                  )}
+                  {shown("name") && z(
+                    "name",
+                    remark && shown("remark") ? (
+                      <button className="block truncate text-left text-[10.5px] cursor-pointer hover:underline"
+                        style={{ color: "var(--text-3)" }}
+                        onClick={() => open(spaceUrl(mid))}>
+                        {profile.name}
+                      </button>
+                    ) : (
+                      <button className="block truncate text-left font-semibold text-[15px] cursor-pointer hover:underline"
+                        style={{ color: profile.nicknameColor || "var(--text)", maxWidth: 150 }}
+                        onClick={() => open(spaceUrl(mid))}>
+                        {profile.name}
+                      </button>
+                    ),
+                  )}
+                </div>
               )}
               {shown("sex") && profile.sex && z("sex", <SexMark sex={profile.sex} />)}
               {shown("vip") && profile.isVip && z("vip", <VipLabel profile={profile} />)}

@@ -146,23 +146,32 @@ body {
   color: #fff;
 }
 
-/* App logo: an in-place hover grow that lands ~2px from the window's top-left
-   corner. `transform` is outside layout, so nothing moves and the titlebar
-   never changes height; the margin only reserves room for the grown mark.
-   The neighbours are permanently offset — they are never pushed. */
+/* App logo: the mark itself stays 15px until you hover it.
+   `transform-origin: left center` grows it rightward from its own left edge,
+   and the margin grows with it so 标题 / 夜间 / 设置 slide right instead of
+   being covered. The titlebar never changes height. */
 .app-logo {
   display: block;
   border-radius: 3px;
-  margin-right: 12px;
-  transform-origin: center center;
-  transition: transform 160ms ease-out, box-shadow 160ms ease-out;
+  margin-right: 0;
+  transform-origin: left center;
+  transition: transform 160ms ease-out, margin-right 160ms ease-out, box-shadow 160ms ease-out;
   will-change: transform;
 }
 .app-logo:hover {
-  transform: scale(2.4);
+  transform: scale(2.6);
+  margin-right: 26px;
   position: relative;
   z-index: 30;
   box-shadow: 0 3px 14px rgba(0, 0, 0, 0.3);
+}
+/* The pink strip above the titlebar pulls back while the logo is grown, so the
+   corner stays visually anchored. */
+.accent-bar {
+  transition: margin-right 160ms ease-out;
+}
+.app-shell:has(.app-logo:hover) .accent-bar {
+  margin-right: 52px;
 }
 
 /* ---- Main pane scrim while the sidebar manages subscriptions ---- */
@@ -882,6 +891,13 @@ body {
   color: #e5484d;
   border-color: color-mix(in srgb, #e5484d 45%, var(--line));
 }
+/* A queued destructive action: it does nothing until 保存并退出. */
+.pending-action {
+  color: #e5484d !important;
+  border-color: color-mix(in srgb, #e5484d 50%, var(--line)) !important;
+  background: color-mix(in srgb, #e5484d 10%, var(--surface-2)) !important;
+}
+
 /* Compact up/down reorder control in 设置 → 订阅 */
 .order-btn {
   width: 18px;

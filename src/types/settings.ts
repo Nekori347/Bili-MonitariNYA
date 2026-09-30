@@ -4,6 +4,8 @@ export interface FieldVisibility {
   banner: boolean;
   avatar: boolean;
   name: boolean;
+  /** 备注名 — its own switch, independent of the username. */
+  remark: boolean;
   uid: boolean;
   sign: boolean;
   level: boolean;
@@ -123,6 +125,7 @@ export const DEFAULT_FIELDS: FieldVisibility = {
   banner: true,
   avatar: true,
   name: true,
+  remark: true,
   uid: true,
   sign: true,
   level: true,
@@ -187,6 +190,7 @@ export const FIELD_LABELS: Record<keyof FieldVisibility, string> = {
   banner: "Banner",
   avatar: "头像",
   name: "用户名",
+  remark: "备注",
   uid: "UID",
   sign: "简介",
   level: "等级",
@@ -222,7 +226,8 @@ export const FIELD_LABELS: Record<keyof FieldVisibility, string> = {
 export const FIELD_HINTS: Record<keyof FieldVisibility, string> = {
   banner: "显示用户主页顶部的自定义横幅",
   avatar: "显示用户头像",
-  name: "显示用户名（设置了备注时优先显示备注）",
+  name: "显示用户的 B站用户名",
+  remark: "显示你为这个 UP 主设置的备注名",
   uid: "显示用户的 UID",
   sign: "显示用户简介",
   level: "显示 B站用户等级标识",

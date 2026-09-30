@@ -4,16 +4,15 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useUIStore } from "../../store/uiStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import {
+  subscriptionKeys,
   useAddSubscriptionFlow,
   useRemarkEditor,
-  useRemoveSubscriptions,
   useSaveSubscriptionOrder,
   useSubscriptions,
 } from "../../queries/subscriptions";
-import { ConfirmButton } from "../../components/ui/ConfirmButton";
 import { invalidateUserAssets } from "../../utils/assetCache";
 import { setAlwaysOnTop } from "../../utils/window";
-import type { Subscription } from "../../services/database/subscriptions";
+import { removeSubscription, type Subscription } from "../../services/database/subscriptions";
 import {
   DEFAULT_OPACITY,
   DEFAULT_SETTINGS,
@@ -44,6 +43,40 @@ import { ChevronDown, ExternalLink, Plus, Undo, XIcon } from "../../components/u
 
 type Category = "appearance" | "subs" | "card" | "video" | "data" | "system";
 type Mode = "global" | "perUser";
+
+/**
+ * Destructive actions are queued, never executed on click.
+ *
+ * 删除订阅 / 清除缓存 / 刷新全部数据 all become a pending item first; 保存并退出
+ * runs the queue, 取消 (or clicking outside) throws it away with the rest of the
+ * draft. Nothing in this panel touches real data until then.
+ */
+type PendingKind = "removeSub" | "clearCache" | "refreshAll";
+interface PendingAction {
+  kind: PendingKind;
+  mid: number;
+}
+
+const PENDING_LABEL: Record<PendingKind, string> = {
+  removeSub: "删除订阅",
+  clearCache: "清除缓存",
+  refreshAll: "刷新全部数据",
+};
+
+function usePendingActions() {
+  const [pending, setPending] = useState<PendingAction[]>([]);
+  const has = (kind: PendingKind, mid: number) =>
+    pending.some((p) => p.kind === kind && p.mid === mid);
+  const toggle = (kind: PendingKind, mid: number) =>
+    setPending((prev) =>
+      prev.some((p) => p.kind === kind && p.mid === mid)
+        ? prev.filter((p) => !(p.kind === kind && p.mid === mid))
+        : [...prev, { kind, mid }],
+    );
+  return { pending, setPending, has, toggle };
+}
+
+type PendingApi = ReturnType<typeof usePendingActions>;
 
 /**
  * 全局设置 only edits the shared defaults; 某个 UP 的设置 only edits that UP's
@@ -105,6 +138,44 @@ export function SettingsPanel() {
 
   const cat = categories.find((c) => c.id === category) ?? categories[0];
   const tab = cat.tabs[Math.min(tabIndex, cat.tabs.length - 1)];
+
+  /* ---- the draft queue: nothing runs until 保存并退出 ---- */
+  const qc = useQueryClient();
+  const setRefreshing = useUIStore((s) => s.setRefreshing);
+  const actions = usePendingActions();
+
+  const runPending = async () => {
+    for (const a of actions.pending) {
+      try {
+        if (a.kind === "removeSub") {
+          await removeSubscription(a.mid);
+          await qc.invalidateQueries({ queryKey: subscriptionKeys.all });
+        } else if (a.kind === "clearCache") {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("clear_user_cache", { mid: String(a.mid) });
+          invalidateUserAssets(a.mid);
+        } else {
+          setRefreshing(true);
+          await Promise.all([
+            qc.invalidateQueries({ queryKey: ["profile", a.mid] }),
+            qc.invalidateQueries({ queryKey: ["stats", a.mid] }),
+            qc.invalidateQueries({ queryKey: ["decoration", a.mid] }),
+            qc.invalidateQueries({ queryKey: ["videos", a.mid] }),
+            qc.invalidateQueries({ queryKey: ["videoDetail"] }),
+            qc.invalidateQueries({ queryKey: ["online"] }),
+          ]);
+        }
+      } catch {
+        /* one failed action must not block the rest of the queue */
+      }
+    }
+  };
+
+  const save = () => {
+    const queue = actions.pending;
+    setSettingsOpen(false);
+    if (queue.length > 0) void runPending();
+  };
 
   return (
     <div
@@ -170,11 +241,11 @@ export function SettingsPanel() {
 
             <div className="flex-1 overflow-y-auto px-4 py-3">
               {mode === "global" ? (
-                <GlobalBody category={category} tab={tab} />
+                <GlobalBody category={category} tab={tab} actions={actions} />
               ) : target == null ? (
                 <div className="text-[12px]" style={{ color: "var(--text-3)" }}>请先在侧栏选择一个 UP 主</div>
               ) : (
-                <PerUserBody mid={target.mid} category={category} />
+                <PerUserBody mid={target.mid} category={category} actions={actions} />
               )}
             </div>
           </div>
@@ -192,9 +263,15 @@ export function SettingsPanel() {
           ) : (
             <span />
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {actions.pending.length > 0 && (
+              <span className="text-[11.5px]" style={{ color: "#e5484d" }}>
+                将执行 {actions.pending.length} 项修改：
+                {actions.pending.map((p) => PENDING_LABEL[p.kind]).join("、")}
+              </span>
+            )}
             <button className="btn text-xs" onClick={cancel}>取消</button>
-            <button className="btn btn-primary text-xs" onClick={() => setSettingsOpen(false)}>保存并退出</button>
+            <button className="btn btn-primary text-xs" onClick={save}>保存并退出</button>
           </div>
         </div>
       </div>
@@ -206,7 +283,7 @@ export function SettingsPanel() {
  * 全局设置
  * ------------------------------------------------------------------ */
 
-function GlobalBody({ category, tab }: { category: Category; tab: string }) {
+function GlobalBody({ category, tab, actions }: { category: Category; tab: string; actions: PendingApi }) {
   const global = useSettingsStore((s) => s.global);
   const updateGlobal = useSettingsStore((s) => s.updateGlobal);
   const updateField = useSettingsStore((s) => s.updateField);
@@ -280,7 +357,7 @@ function GlobalBody({ category, tab }: { category: Category; tab: string }) {
 
     case "subs":
       return tab === "订阅列表" ? (
-        <SubscriptionManager subs={subs ?? []} />
+        <SubscriptionManager subs={subs ?? []} actions={actions} />
       ) : (
         <Sections>
           <Section title="默认视频条数" open>
@@ -310,7 +387,7 @@ function GlobalBody({ category, tab }: { category: Category; tab: string }) {
             </div>
             {/* Global defaults only — an individual UP's overrides never leak in,
                 and the sample identity is always the neutral one. */}
-            <PreviewCard mid={selectedMid} fields={global.fields} onToggle={updateField} neutral />
+            <PreviewCard mid={selectedMid} fields={global.fields} onToggle={updateField} />
           </Section>
         </Sections>
       );
@@ -400,20 +477,13 @@ function GlobalBody({ category, tab }: { category: Category; tab: string }) {
             <div className="flex flex-col gap-1">
               {(subs ?? []).map((s) => (
                 <Row key={s.mid} label={s.remark || s.name || `UID ${s.mid}`}>
-                  <ConfirmButton
-                    label="清除这个 UP 的缓存"
-                    confirmLabel="确认清除"
-                    tone="danger"
-                    size="sm"
-                    title="删除本机保存的头像、Banner、头像框和装扮图"
-                    onConfirm={async () => {
-                      const { invoke } = await import("@tauri-apps/api/core");
-                      await invoke("clear_user_cache", { mid: String(s.mid) });
-                      // Drop the resolved paths too, so the next mount
-                      // re-downloads instead of pointing at a deleted file.
-                      invalidateUserAssets(s.mid);
-                    }}
-                  />
+                  <button
+                    className={`btn text-[11px] px-2 py-1${actions.has("clearCache", s.mid) ? " pending-action" : ""}`}
+                    title="保存并退出后才会真正清除本机缓存"
+                    onClick={() => actions.toggle("clearCache", s.mid)}
+                  >
+                    {actions.has("clearCache", s.mid) ? "撤销清除" : "清除这个 UP 的缓存"}
+                  </button>
                 </Row>
               ))}
               {(subs ?? []).length === 0 && <div className="text-[12px]" style={{ color: "var(--text-3)" }}>还没有订阅</div>}
@@ -441,16 +511,12 @@ function GlobalBody({ category, tab }: { category: Category; tab: string }) {
  * 单个 UP 的覆盖设置
  * ------------------------------------------------------------------ */
 
-function PerUserBody({ mid, category }: { mid: number; category: Category }) {
+function PerUserBody({ mid, category, actions }: { mid: number; category: Category; actions: PendingApi }) {
   const global = useSettingsStore((s) => s.global);
   const perUser = useSettingsStore((s) => s.perUser[mid]);
   const setPerUser = useSettingsStore((s) => s.setPerUser);
   const clearPerUser = useSettingsStore((s) => s.clearPerUser);
   const updateGlobal = useSettingsStore((s) => s.updateGlobal);
-  const qc = useQueryClient();
-  const setRefreshing = useUIStore((s) => s.setRefreshing);
-  const [done, setDone] = useState(false);
-
   const overrides = (perUser?.fields ?? {}) as Partial<FieldVisibility>;
   const overriddenKeys = Object.keys(overrides) as (keyof FieldVisibility)[];
 
@@ -463,25 +529,6 @@ function PerUserBody({ mid, category }: { mid: number; category: Category }) {
     const next = { ...overrides };
     delete next[k];
     setPerUser(mid, { ...perUser, fields: next });
-  };
-
-  /**
-   * Re-fetch everything for this UP. It never clears a cache first: the current
-   * snapshot stays on screen and the progress line reports the manual refresh.
-   */
-  const refreshAll = async () => {
-    setRefreshing(true);
-    setDone(false);
-    await Promise.all([
-      qc.invalidateQueries({ queryKey: ["profile", mid] }),
-      qc.invalidateQueries({ queryKey: ["stats", mid] }),
-      qc.invalidateQueries({ queryKey: ["decoration", mid] }),
-      qc.invalidateQueries({ queryKey: ["videos", mid] }),
-      qc.invalidateQueries({ queryKey: ["videoDetail"] }),
-      qc.invalidateQueries({ queryKey: ["online"] }),
-      qc.invalidateQueries({ queryKey: ["statsGrowth", mid] }),
-    ]);
-    setDone(true);
   };
 
   const InheritNote = ({ children }: { children: React.ReactNode }) => (
@@ -512,7 +559,7 @@ function PerUserBody({ mid, category }: { mid: number; category: Category }) {
         <Section title="这个 UP 的名片显示项" open>
           <InheritNote>没有单独设置的项目会跟随全局默认值。</InheritNote>
           {/* 单个 UP 的预览显示这个 UP 的真实数据，因为它说明的正是“它会变成什么样”。 */}
-          <PreviewCard mid={mid} fields={effective} onToggle={applyField} neutral={false} />
+          <PreviewCard mid={mid} fields={effective} onToggle={applyField} />
           <OverrideList />
           <button
             className="btn text-xs mt-3"
@@ -583,15 +630,13 @@ function PerUserBody({ mid, category }: { mid: number; category: Category }) {
             立即重新获取这个 UP 主的资料、统计数据、粉丝牌、装扮和最近投稿。当前显示的数据会保留到新数据返回。
           </div>
           <div className="flex items-center gap-2">
-            <ConfirmButton
-              key={`refresh-${mid}-${category}`}
-              label="刷新这个 UP 的全部数据"
-              confirmLabel="确认刷新"
-              tone="accent"
-              title="重新获取资料、统计、粉丝牌、装扮和最近投稿"
-              onConfirm={refreshAll}
-            />
-            {done && <span className="text-[11px]" style={{ color: "#22a06b" }}>已开始刷新</span>}
+            <button
+              className={`btn text-xs${actions.has("refreshAll", mid) ? " pending-action" : ""}`}
+              title="保存并退出后才会真正刷新"
+              onClick={() => actions.toggle("refreshAll", mid)}
+            >
+              {actions.has("refreshAll", mid) ? "撤销刷新" : "刷新这个 UP 的全部数据"}
+            </button>
           </div>
         </Section>
       </Sections>
@@ -666,11 +711,10 @@ function AboutSection() {
  * 确认，绝不弹浏览器对话框。
  * ------------------------------------------------------------------ */
 
-function SubscriptionManager({ subs }: { subs: Subscription[] }) {
+function SubscriptionManager({ subs, actions }: { subs: Subscription[]; actions: PendingApi }) {
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const { add, busy } = useAddSubscriptionFlow();
-  const removeSubs = useRemoveSubscriptions();
   const saveOrder = useSaveSubscriptionOrder();
   const videoLimit = useSettingsStore((s) => s.global.videoLimit);
 
@@ -716,7 +760,7 @@ function SubscriptionManager({ subs }: { subs: Subscription[] }) {
 
       <Section title="已订阅的 UP 主" open>
         <div className="text-[11px] mb-2" style={{ color: "var(--text-3)" }}>
-          备注会立即显示在侧栏和名片上，不需要保存。
+          备注会立即显示在侧栏和名片上；排序和删除要等“保存并退出”才生效。
         </div>
         <div className="flex flex-col gap-1">
           {subs.map((s, i) => (
@@ -725,8 +769,9 @@ function SubscriptionManager({ subs }: { subs: Subscription[] }) {
               sub={s}
               index={i}
               total={subs.length}
+              pendingRemoval={actions.has("removeSub", s.mid)}
               onMove={move}
-              onRemove={() => removeSubs.mutate([s.mid])}
+              onToggleRemove={() => actions.toggle("removeSub", s.mid)}
             />
           ))}
           {subs.length === 0 && <div className="text-[12px]" style={{ color: "var(--text-3)" }}>还没有订阅</div>}
@@ -740,21 +785,23 @@ function SubRow({
   sub,
   index,
   total,
+  pendingRemoval,
   onMove,
-  onRemove,
+  onToggleRemove,
 }: {
   sub: Subscription;
   index: number;
   total: number;
+  pendingRemoval: boolean;
   onMove: (index: number, delta: number) => void;
-  onRemove: () => void;
+  onToggleRemove: () => void;
 }) {
   const editor = useRemarkEditor(sub.mid);
   const [value, setValue] = useState(sub.remark ?? "");
   useEffect(() => setValue(sub.remark ?? ""), [sub.remark]);
 
   return (
-    <div className="flex items-center gap-2 py-0.5">
+    <div className="flex items-center gap-2 py-0.5" style={{ opacity: pendingRemoval ? 0.45 : 1 }}>
       <div className="flex flex-none flex-col">
         <button
           className="order-btn"
@@ -794,15 +841,19 @@ function SubRow({
         }}
       />
 
-      <ConfirmButton
-        label="删除"
-        confirmLabel="确认删除"
-        tone="danger"
-        size="sm"
-        className="flex-none"
-        title="取消订阅这个 UP 主"
-        onConfirm={onRemove}
-      />
+      {pendingRemoval ? (
+        <button className="btn text-[11px] px-2 py-0.5 flex-none pending-action" onClick={onToggleRemove}>
+          撤销删除
+        </button>
+      ) : (
+        <button
+          className="btn text-[11px] px-2 py-0.5 flex-none"
+          title="标记为待删除，保存并退出后才真正执行"
+          onClick={onToggleRemove}
+        >
+          删除
+        </button>
+      )}
     </div>
   );
 }
