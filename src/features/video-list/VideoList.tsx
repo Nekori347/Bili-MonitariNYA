@@ -274,31 +274,43 @@ function VideoRow({ v, metrics, statsColumns, trailing, growth, sortField, highl
   highlightField: HighlightField;
   period: "day" | "week" | "month";
 }) {
-  /* Stacked is a measured fallback, not a breakpoint: this row only folds a
-     field once its own metrics genuinely no longer fit side by side.
-     The requirement is computed from the icon and the text widths — never from
-     the row's current layout — so the two states cannot chase each other. */
-  const statsRef = useRef<HTMLDivElement>(null);
+  /*
+   * Stacked is a measured fallback, not a breakpoint: a field only folds once
+   * the metrics genuinely no longer fit side by side.
+   *
+   * Both sides of the test are mode-independent, which is essential:
+   *   - `available` is the whole metrics line, not the flow lane. Stacking also
+   *     narrows the trailing slot, so measuring the lane alone made the two
+   *     states feed each other (narrow → stack → lane widens → unstack → …).
+   *   - `required` is built from icon + text widths only, never from the
+   *     current layout.
+   */
+  const lineRef = useRef<HTMLDivElement>(null);
   const [stacked, setStacked] = useState(false);
 
   useLayoutEffect(() => {
-    const el = statsRef.current;
-    if (!el) return;
-    const cols = Array.from(el.children) as HTMLElement[];
-    if (cols.length === 0) return;
-    const gap = parseFloat(getComputedStyle(el).columnGap || "0") || 0;
-    // `el` is the flex-1 lane, so its clientWidth is already the space left
-    // over once the trailing slot has taken its share.
-    const available = el.clientWidth;
+    const line = lineRef.current;
+    if (!line) return;
+    const available = line.clientWidth;
     if (available <= 0) return;
 
-    let required = gap * (cols.length - 1);
-    for (const col of cols) {
-      const icon = col.querySelector<HTMLElement>(".data-col-icon");
-      const text = col.querySelector<HTMLElement>(".data-col-text");
+    const cells = Array.from(line.querySelectorAll<HTMLElement>(".data-col"));
+    if (cells.length === 0) return;
+
+    let required = 0;
+    for (const cell of cells) {
+      const icon = cell.querySelector<HTMLElement>(".data-col-icon");
+      const text = cell.querySelector<HTMLElement>(".data-col-text");
       required += (icon?.offsetWidth ?? 0) + 3 + contentWidth(text);
     }
-    const next = required > available + 1;
+    // Lane-internal gaps, plus the gap between the lane and the trailing slot.
+    const gaps =
+      metrics.colGap * Math.max(0, statsColumns.length - 1) + (trailing ? metrics.sepGap : 0);
+
+    // A small hysteresis band so sub-pixel rounding can never chatter: it takes
+    // a decisive 2px to change the layout, in either direction.
+    const need = required + gaps;
+    const next = stacked ? need > available - 2 : need > available + 2;
     if (next !== stacked) setStacked(next);
   });
 
@@ -353,14 +365,11 @@ function VideoRow({ v, metrics, statsColumns, trailing, growth, sortField, highl
           {v.title}
         </div>
         {/* The metrics share the whole line between the first field and the
-            trailing slot, so they spread out instead of bunching on the left. */}
-        <div className="flex items-start" style={{ gap: metrics.sepGap, marginTop: 4 }}>
+            trailing slot, so they spread out instead of bunching on the left.
+            `lineRef` spans both, which keeps the fit test stable. */}
+        <div ref={lineRef} className="flex items-start" style={{ gap: metrics.sepGap, marginTop: 4 }}>
           {statsColumns.length > 0 && (
-            <div
-              ref={statsRef}
-              className="flex items-start flex-1 min-w-0"
-              style={{ gap: metrics.colGap }}
-            >
+            <div className="flex items-start flex-1 min-w-0" style={{ gap: metrics.colGap }}>
               {statsColumns.map((k) => renderCell(k, k))}
             </div>
           )}

@@ -199,12 +199,15 @@ export function ProfileCardView({
                   { position: "absolute", inset: 0, display: "block" },
                 )}
 
-                {/* PENDENT_LAYER — the ring must wrap the avatar, never clip it */}
+                {/* PENDENT_LAYER — the ring must wrap the avatar, never clip it.
+                    Its centring lives in the element's own classes so it is
+                    correct in the live card too; the zone style only matters
+                    while previewing. */}
                 {shown("pendant") && (assets.pendant || preview) && z(
                   "pendant",
                   assets.pendant ? (
                     <img src={assets.pendant} alt=""
-                      className="pointer-events-none object-contain"
+                      className="pointer-events-none object-contain absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
                       style={{ width: PENDANT, height: PENDANT }} draggable={false} {...assetImgHandlers()} />
                   ) : (
                     /* Preview keeps the frame's exact slot visible and clickable. */
@@ -214,10 +217,16 @@ export function ProfileCardView({
                   pendantZoneStyle,
                 )}
 
-                {shown("official") && profile.official && z(
-                  "official",
-                  <CertIcon role={profile.official.role} title={profile.official.title} inset={inset} />,
-                  { position: "absolute", right: inset, bottom: inset, width: BOLT, height: BOLT, display: "block", zIndex: 5 },
+                {/* Certification bolt: the wrapper owns the position, so the
+                    zone can be a plain wrapper in preview and the badge still
+                    lands on the avatar's rim in the live card. */}
+                {shown("official") && profile.official && (
+                  <div
+                    className="absolute"
+                    style={{ right: inset, bottom: inset, width: BOLT, height: BOLT, zIndex: 5 }}
+                  >
+                    {z("official", <CertIcon role={profile.official.role} title={profile.official.title} />)}
+                  </div>
                 )}
               </div>
               {shown("level") && z("level", <LevelIcon profile={profile} />)}
@@ -423,7 +432,8 @@ function LevelIcon({ profile }: { profile: UserProfile }) {
   );
 }
 
-function CertIcon({ role, title, inset }: { role: number; title: string; inset: number }) {
+/** Fills the positioned wrapper the caller provides. */
+function CertIcon({ role, title }: { role: number; title: string }) {
   const isOrg = isOrgRole(role);
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const ref = useRef<HTMLSpanElement>(null);
@@ -434,7 +444,6 @@ function CertIcon({ role, title, inset }: { role: number; title: string; inset: 
     if (r) setAnchor({ x: r.left + r.width / 2, y: r.top });
   };
 
-  void inset;
   return (
     <>
       {/* Positioned by the caller so the preview can use it as its own zone. */}
