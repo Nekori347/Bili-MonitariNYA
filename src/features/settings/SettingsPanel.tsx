@@ -10,6 +10,7 @@ import {
   DEFAULT_VIDEO_FIELD_ORDER,
   type FieldVisibility,
   type GlobalSettings,
+  type PerUserSettings,
   type VideoFieldKey,
 } from "../../types/settings";
 import { AccountSection } from "./AccountSection";
@@ -33,19 +34,22 @@ export function SettingsPanel() {
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
   const [category, setCategory] = useState<Category>("appearance");
   const [tabIndex, setTabIndex] = useState(0);
-  const original = useRef<GlobalSettings | null>(null);
+  const original = useRef<{ global: GlobalSettings; perUser: Record<number, PerUserSettings> } | null>(null);
 
-  // Snapshot on open so 取消 can roll the live preview back; 保存 keeps it.
+  // Snapshot on open so the live preview can be rolled back by 取消; 保存 keeps it.
   useEffect(() => {
-    original.current = useSettingsStore.getState().global;
+    const s = useSettingsStore.getState();
+    original.current = { global: s.global, perUser: s.perUser };
   }, []);
 
   const cancel = () => {
-    if (original.current) {
-      useSettingsStore.setState({ global: original.current });
-      void import("../../services/database/settings").then(({ setSetting }) =>
-        setSetting("global_settings_v1", original.current),
-      );
+    const snap = original.current;
+    if (snap) {
+      useSettingsStore.setState({ global: snap.global, perUser: snap.perUser });
+      void import("../../services/database/settings").then(({ setSetting }) => {
+        void setSetting("global_settings_v1", snap.global);
+        void setSetting("per_user_settings_v1", snap.perUser);
+      });
     }
     setSettingsOpen(false);
   };
@@ -136,6 +140,7 @@ export function SettingsPanel() {
 
 function CategoryBody({ category, tab }: { category: Category; tab: string }) {
   const global = useSettingsStore((s) => s.global);
+  const perUserAll = useSettingsStore((s) => s.perUser);
   const updateGlobal = useSettingsStore((s) => s.updateGlobal);
   const updateField = useSettingsStore((s) => s.updateField);
   const selectedMid = useUIStore((s) => s.selectedMid);
@@ -232,7 +237,7 @@ function CategoryBody({ category, tab }: { category: Category; tab: string }) {
 
     case "card": {
       const targetMid = selectedMid;
-      const perUser = targetMid != null ? useSettingsStore.getState().perUser[targetMid]?.fields : undefined;
+      const perUser = targetMid != null ? perUserAll[targetMid]?.fields : undefined;
       const effective = tab === "当前 UP 覆盖" && perUser ? { ...global.fields, ...perUser } : global.fields;
       return (
         <Sections>
@@ -269,7 +274,7 @@ function CategoryBody({ category, tab }: { category: Category; tab: string }) {
 
     case "video": {
       const targetMid = selectedMid;
-      const perUser = targetMid != null ? useSettingsStore.getState().perUser[targetMid]?.fields : undefined;
+      const perUser = targetMid != null ? perUserAll[targetMid]?.fields : undefined;
       const effective = tab === "当前 UP 覆盖" && perUser ? { ...global.fields, ...perUser } : global.fields;
       const applyField = (k: keyof FieldVisibility, v: boolean) => {
         if (tab === "当前 UP 覆盖" && targetMid != null) {
