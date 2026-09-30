@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useProfileCard } from "../../queries/profile";
@@ -9,7 +9,14 @@ import { spaceUrl } from "../../services/bilibili/endpoints";
 import { formatCount } from "../../utils/format";
 import { useCachedAsset } from "../../utils/useCachedAsset";
 import { useStatsGrowth } from "../../queries/statsGrowth";
-import type { DynamicDecoration, UserProfile } from "../../services/bilibili/types";
+import { EMPTY_GROWTH, type StatsGrowthMap } from "../../utils/growth";
+import type {
+  DynamicDecoration,
+  FansMedal as FansMedalData,
+  UserProfile,
+  UserStats,
+} from "../../services/bilibili/types";
+import type { FieldVisibility } from "../../types/settings";
 import { Upload } from "../../components/ui/Icons";
 import { LEVEL_SVGS } from "../../components/ui/levelSvgs";
 import { certSvg, isOrgRole } from "../../components/ui/certSvgs";
@@ -47,121 +54,129 @@ const LEVEL_VIEWBOX: Record<string, string> = {
   h: "0.4 7.7 29.4 14.1",
 };
 
-function LevelIcon({ profile }: { profile: UserProfile }) {
-  const key = profile.level === 6 && profile.isSeniorMember ? "h" : String(profile.level);
-  const raw = LEVEL_SVGS[key];
-  if (!raw) return null;
-  const svg = raw.replace(/viewBox="[^"]*"/, `viewBox="${LEVEL_VIEWBOX[key] ?? LEVEL_VIEWBOX["0"]}"`);
-  return (
-    <span
-      className="lv-badge flex-none"
-      style={{ height: LEVEL_H }}
-      title={profile.isSeniorMember ? `硬核会员 Lv${profile.level}` : `Lv${profile.level}`}
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  );
+export interface ProfileAssets {
+  banner?: string;
+  face?: string;
+  pendant?: string;
+  decoration?: string;
 }
 
-export function ProfileCard({ mid }: { mid: number }) {
-  const selectedMid = useUIStore((s) => s.selectedMid);
-  const globalFields = useSettingsStore((s) => s.global.fields);
-  const perUserFields = useSettingsStore((s) => s.perUser[mid]?.fields);
-  const fields = useMemo(() => ({ ...globalFields, ...(perUserFields ?? {}) }), [globalFields, perUserFields]);
-  const primaryMid = useSettingsStore((s) => s.global.primaryAccountMid);
-  const collapsed = useSettingsStore((s) => s.global.profileCollapsed);
-  const updateGlobal = useSettingsStore((s) => s.updateGlobal);
-  const { data: subs } = useSubscriptions();
-  const remark = subs?.find((s) => s.mid === mid)?.remark;
-  const { profile, stats, decoration, loading } = useProfileCard(mid, selectedMid === mid);
+/** Wraps one element so the settings preview can make it a click target. */
+export type ZoneRenderer = (field: keyof FieldVisibility, node: ReactNode) => ReactNode;
 
-  // Hooks must run before any conditional return (React rules).
-  const banner = useCachedAsset(profile?.topPhoto, `users/${mid}/banner`);
-  const faceSrc = useCachedAsset(profile?.face, `users/${mid}/avatar`);
-  const pendantSrc = useCachedAsset(profile?.pendantUrl, `users/${mid}/pendant`);
-  const decorationImg = useCachedAsset(decoration?.cardUrl, `users/${mid}/decoration`);
-  const growth = useStatsGrowth(mid, stats);
+export interface ProfileCardViewProps {
+  mid: number;
+  profile: UserProfile;
+  stats?: UserStats;
+  decoration?: DynamicDecoration | null;
+  remark?: string;
+  fields: FieldVisibility;
+  growth: StatsGrowthMap;
+  assets: ProfileAssets;
+  primaryMid?: number | null;
+  /** Render every element (dimmed when off) so the preview stays clickable. */
+  preview?: boolean;
+  zone?: ZoneRenderer;
+  onOpen?: (url: string) => void;
+  /** Overrides the global 增长周期 (the preview passes it explicitly). */
+  period?: "day" | "week" | "month";
+}
 
-  const open = (url: string) => void openUrl(url);
-  const stackSize = fields.pendant && pendantSrc ? PENDANT : AVATAR + 20;
+/**
+ * The one and only profile card layout. The main page and 设置 → 用户名片 both
+ * render this component, so the preview can never drift from the real card.
+ */
+export function ProfileCardView({
+  mid,
+  profile,
+  stats,
+  decoration,
+  remark,
+  fields,
+  growth,
+  assets,
+  primaryMid,
+  preview = false,
+  zone,
+  onOpen,
+  period: periodProp,
+}: ProfileCardViewProps) {
+  const storePeriod = useSettingsStore((s) => s.global.growthPeriod);
+  const period = periodProp ?? storePeriod;
+  const open = onOpen ?? ((url: string) => void openUrl(url));
+  // In preview mode an element is always rendered; `zone` dims the disabled ones.
+  const shown = (f: keyof FieldVisibility) => preview || fields[f];
+  const z = (f: keyof FieldVisibility, node: ReactNode): ReactNode =>
+    preview && zone ? zone(f, node) : node;
+
+  const stackSize = fields.pendant && assets.pendant ? PENDANT : AVATAR + 20;
   const inset = boltInset(stackSize);
-
-  if (loading && !profile) return <div className="card h-24 animate-pulse" />;
-  if (!profile) {
-    return <section className="card p-6 text-sm" style={{ color: "var(--text-3)" }}>用户资料加载失败，请稍后重试</section>;
-  }
-
-  const toggleCollapsed = () => updateGlobal({ profileCollapsed: !collapsed });
-
-  /* ---- collapsed: thin header only ---- */
-  if (collapsed) {
-    return (
-      <section className="card relative flex-none overflow-hidden">
-        <div className="profile-hoverzone" />
-        <ProfileHandle collapsed onToggle={toggleCollapsed} />
-        <div className="flex items-center gap-2 px-3 py-1.5">
-          <img src={faceSrc ?? undefined} alt="" width={22} height={22}
-            className="rounded-full object-cover flex-none" style={{ background: "var(--surface-2)" }} draggable={false} />
-          <span className="text-[13px] font-medium truncate" style={{ color: "var(--text)" }}>
-            {remark || profile.name}
-          </span>
-          {fields.sex && profile.sex && <SexMark sex={profile.sex} />}
-          {fields.vip && profile.isVip && <VipLabel profile={profile} />}
-          {fields.level && <LevelIcon profile={profile} />}
-          <span className="flex-1" />
-          {fields.follower && stats?.follower != null && (
-            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>{formatCount(stats.follower)} 粉丝</span>
-          )}
-        </div>
-      </section>
-    );
-  }
 
   return (
     <section
-      className="card relative flex-none overflow-hidden"
+      className={`card relative flex-none overflow-hidden${preview ? " pz-scope" : ""}`}
       style={{ display: "flex", flexDirection: "column", borderBottomLeftRadius: 6, borderBottomRightRadius: 6 }}
     >
-      <div className="profile-hoverzone" />
-      <ProfileHandle collapsed={false} onToggle={toggleCollapsed} />
-
       {/* ===== ProfileHero (Banner background) ===== */}
       <div className="relative">
-        {fields.banner && banner && (
+        {/* The banner layer is never wrapped by a preview zone: it needs the
+            hero itself as its containing block, so the preview adds a separate
+            click surface on top of it instead. */}
+        {shown("banner") && (assets.banner ? (
           <div className="absolute inset-0">
-            <img src={banner} alt="" className="w-full h-full object-cover" style={{ objectPosition: "center 35%" }} draggable={false} />
+            <img src={assets.banner} alt="" className="w-full h-full object-cover" style={{ objectPosition: "center 35%" }} draggable={false} />
             <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, color-mix(in srgb, var(--bg) 6%, transparent) 30%, color-mix(in srgb, var(--bg) 82%, transparent) 100%)" }} />
           </div>
+        ) : (
+          <div className="absolute inset-0" style={{ background: "var(--accent-soft)" }} />
+        ))}
+        {preview && zone && (
+          <div className="absolute inset-0" style={{ zIndex: 1 }}>
+            {zone("banner", <span className="absolute inset-0" />)}
+          </div>
         )}
-        {fields.banner && !banner && <div className="absolute inset-0" style={{ background: "var(--accent-soft)" }} />}
 
-        {/* Grid row, bottom-aligned: the identity block settles toward the
-            lower half of the hero so the banner's artwork stays visible. */}
+        {/* 装扮编号 — Profile Hero 的右上角，永不作为可点击入口。 */}
+        {shown("decoration") && (decoration || preview) && (
+          <div className="absolute" style={{ top: 4, right: 8, zIndex: 6 }}>
+            {z("decoration", decoration
+              ? <Ornament decoration={decoration} src={assets.decoration} />
+              : <span className="ornament-placeholder" />)}
+          </div>
+        )}
+
         <div
-          className="relative px-3 pt-7 pb-2"
-          style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", alignItems: "end", columnGap: 10 }}
+          className="relative px-3 pb-2"
+          style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", alignItems: "end", columnGap: 10, zIndex: 2, paddingTop: shown("decoration") && (decoration || preview) ? 34 : 28 }}
         >
           {/* Left: avatar stack + level */}
-          {fields.avatar && (
+          {shown("avatar") && (
             <div className="flex flex-col items-center flex-none" style={{ overflow: "visible" }}>
               <div className="relative" style={{ width: stackSize, height: stackSize, overflow: "visible" }}>
                 <button className="absolute inset-0 cursor-pointer flex items-center justify-center" onClick={() => open(spaceUrl(mid))} title="打开主页">
                   {/* AVATAR_LAYER (1×) — the only clipped layer */}
-                  <img src={faceSrc} alt=""
+                  <img src={assets.face} alt=""
                     className="rounded-full object-cover absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
                     style={{ width: AVATAR, height: AVATAR, background: "var(--surface-2)", outline: "2px solid var(--bg)" }}
                     draggable={false} />
                   {/* PENDENT_LAYER — the ring must wrap the avatar, never clip it */}
-                  {fields.pendant && pendantSrc && (
-                    <img src={pendantSrc} alt=""
+                  {shown("pendant") && assets.pendant && (
+                    <img src={assets.pendant} alt=""
                       className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 object-contain pointer-events-none"
                       style={{ width: PENDANT, height: PENDANT }} draggable={false} />
                   )}
+                  {/* Preview only: keep the frame's slot visible (and clickable)
+                      when there is no artwork yet, at the exact same size. */}
+                  {preview && shown("pendant") && !assets.pendant && (
+                    <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full pointer-events-none"
+                      style={{ width: PENDANT, height: PENDANT, border: "2px dashed var(--accent-ring)" }} />
+                  )}
                 </button>
-                {fields.official && profile.official && (
+                {shown("official") && profile.official && (
                   <CertIcon role={profile.official.role} title={profile.official.title} inset={inset} />
                 )}
               </div>
-              {fields.level && <LevelIcon profile={profile} />}
+              {shown("level") && <LevelIcon profile={profile} />}
             </div>
           )}
 
@@ -169,7 +184,7 @@ export function ProfileCard({ mid }: { mid: number }) {
           <div className="min-w-0" style={{ paddingBottom: 7 }}>
             {/* row 1: name block · sex · vip */}
             <div className="flex items-center" style={{ gap: 4 }}>
-              {fields.name && (
+              {shown("name") && (
                 remark ? (
                   <div className="min-w-0 flex flex-col justify-center" style={{ lineHeight: 1.15 }}>
                     <button className="block truncate text-left font-semibold text-[14px] cursor-pointer hover:underline"
@@ -191,62 +206,105 @@ export function ProfileCard({ mid }: { mid: number }) {
                   </button>
                 )
               )}
-              {fields.sex && profile.sex && <SexMark sex={profile.sex} />}
-              {fields.vip && profile.isVip && <VipLabel profile={profile} />}
+              {shown("sex") && profile.sex && z("sex", <SexMark sex={profile.sex} />)}
+              {shown("vip") && profile.isVip && z("vip", <VipLabel profile={profile} />)}
             </div>
 
             {/* row 2: UID · fans medal (VIP never lives here) */}
-            {(fields.uid || (fields.fansMedal && profile.fansMedal)) && (
+            {(shown("uid") || (shown("fansMedal") && profile.fansMedal)) && (
               <div className="flex items-center" style={{ gap: 5, marginTop: 4 }}>
-                {fields.uid && <span className="text-[11px] leading-none" style={{ color: "var(--text-2)" }}>UID {mid}</span>}
-                {fields.fansMedal && profile.fansMedal && <FansMedal profile={profile} />}
+                {shown("uid") && z("uid", <span className="text-[11px] leading-none" style={{ color: "var(--text-2)" }}>UID {mid}</span>)}
+                {shown("fansMedal") && profile.fansMedal && z("fansMedal", <FanMedal medal={profile.fansMedal} />)}
               </div>
             )}
 
             {/* rows 3-4: sign (up to two lines) */}
-            {fields.sign && profile.sign && (
+            {shown("sign") && profile.sign && z("sign", (
               <p className="text-[11.5px] break-words" style={{ color: "var(--text-2)", marginTop: 4, lineHeight: 1.25, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                 {profile.sign}
               </p>
-            )}
+            ))}
           </div>
-
-          {/* Right: real decoration card artwork */}
-          {fields.decoration && decoration && <DecorationCard decoration={decoration} src={decorationImg} />}
         </div>
       </div>
 
       {/* ===== divider ===== */}
       <div style={{ height: 1, background: "color-mix(in srgb, #fb7299 40%, transparent)", flex: "none" }} />
 
-      {/* ===== Stats: label / value / growth ===== */}
-      <div className="flex items-center gap-2 px-3" style={{ background: "color-mix(in srgb, var(--surface-2) 60%, transparent)", paddingTop: 3, paddingBottom: 2 }}>
-        <div className="flex-1 grid" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
-          <StatCell label="关注" value={fields.following ? (stats?.following ?? null) : null} growth={growth.following} on={fields.growthDay || fields.growthWeek || fields.growthMonth} />
-          <StatCell label="粉丝" value={fields.follower ? (stats?.follower ?? null) : null} growth={growth.follower} on={fields.growthDay || fields.growthWeek || fields.growthMonth} />
-          <StatCell label="获赞" value={fields.likes ? (stats?.likes ?? null) : null} growth={growth.likes} on={fields.growthDay || fields.growthWeek || fields.growthMonth} />
-          <StatCell label="播放" value={fields.totalViews ? (stats?.totalViews ?? null) : null} growth={growth.totalViews} on={fields.growthDay || fields.growthWeek || fields.growthMonth} />
-          <StatCell label="投稿" value={fields.videoCount ? (stats?.videoCount ?? null) : null} growth={growth.videoCount} on={fields.growthDay || fields.growthWeek || fields.growthMonth} />
-        </div>
-        <button
-          className="btn-primary btn text-[11px] px-2 py-1 rounded-md flex-none"
-          style={{ visibility: primaryMid === mid ? "visible" : "hidden" }}
-          onClick={() => open("https://member.bilibili.com/platform/upload-manager/article")}
-          title="上传投稿"
-        >
-          <Upload size={12} /> 投稿
-        </button>
-      </div>
+      {/* ===== Stats: only visible columns exist, so the row fills evenly ===== */}
+      <ProfileStats
+        fields={fields}
+        stats={stats}
+        growth={growth}
+        period={period}
+        primaryMid={primaryMid}
+        mid={mid}
+        preview={preview}
+        zone={zone}
+        shown={shown}
+      />
     </section>
   );
 }
 
-/** Slim control handle that slides down from the card's top edge on hover. */
-function ProfileHandle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+type StatKey = "following" | "follower" | "likes" | "totalViews" | "videoCount";
+
+const STAT_LABELS: Record<StatKey, string> = {
+  following: "关注",
+  follower: "粉丝",
+  likes: "获赞",
+  totalViews: "播放",
+  videoCount: "投稿",
+};
+
+const STAT_ORDER: StatKey[] = ["following", "follower", "likes", "totalViews", "videoCount"];
+
+function ProfileStats({
+  fields, stats, growth, period, primaryMid, mid, preview, zone, shown,
+}: {
+  fields: FieldVisibility;
+  stats?: UserStats;
+  growth: StatsGrowthMap;
+  period: "day" | "week" | "month";
+  primaryMid?: number | null;
+  mid: number;
+  preview: boolean;
+  zone?: ZoneRenderer;
+  shown: (f: keyof FieldVisibility) => boolean;
+}) {
+  const open = (url: string) => void openUrl(url);
+  const growthSwitch: keyof FieldVisibility =
+    period === "day" ? "growthDay" : period === "week" ? "growthWeek" : "growthMonth";
+  const growthOn = shown(growthSwitch);
+  const visible = preview ? STAT_ORDER : STAT_ORDER.filter((k) => fields[k]);
+
   return (
-    <button className="profile-handle no-drag" onClick={onToggle}>
-      {collapsed ? "展开名片" : "收起名片"}
-    </button>
+    <div className="flex items-center gap-2 px-3" style={{ background: "color-mix(in srgb, var(--surface-2) 60%, transparent)", paddingTop: 3, paddingBottom: 2 }}>
+      {visible.length > 0 && (
+        /* Columns are re-derived from what is on, so hiding one never leaves a gap. */
+        <div className="flex-1 grid" style={{ gridTemplateColumns: `repeat(${visible.length}, minmax(0, 1fr))` }}>
+          {visible.map((k) => {
+            const g = growth[k] ?? EMPTY_GROWTH;
+            const delta = growthOn ? (period === "day" ? g.day : period === "week" ? g.week : g.month) : null;
+            const cell = <StatCell label={STAT_LABELS[k]} value={stats?.[k] ?? null} delta={delta ?? null} />;
+            return (
+              <span key={k} style={{ display: "contents" }}>
+                {preview && zone ? zone(k, cell) : cell}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {visible.length === 0 && <span className="flex-1" />}
+      <button
+        className="btn-primary btn text-[11px] px-2 py-1 rounded-md flex-none"
+        style={{ visibility: primaryMid === mid ? "visible" : "hidden" }}
+        onClick={() => open("https://member.bilibili.com/platform/upload-manager/article")}
+        title="上传投稿"
+      >
+        <Upload size={12} /> 投稿
+      </button>
+    </div>
   );
 }
 
@@ -257,37 +315,46 @@ function ProfileHandle({ collapsed, onToggle }: { collapsed: boolean; onToggle: 
 function StatCell({
   label,
   value,
-  growth,
-  on,
+  delta,
 }: {
   label: string;
   value: number | null;
-  growth?: { day: number | null; week: number | null; month: number | null } | null;
-  on: boolean;
+  delta: number | null;
 }) {
-  const period = useSettingsStore((s) => s.global.growthPeriod);
-  const showGrowth = useSettingsStore((s) => s.global.fields.growthDay);
-  const key = period === "day" ? "day" : period === "week" ? "week" : "month";
-  const delta = on && showGrowth ? (growth?.[key] ?? null) : null;
   return (
-    <div className="flex flex-col items-center" style={{ lineHeight: 1.1 }}>
-      <span className="text-[9.5px]" style={{ color: "var(--text-3)" }}>{label}</span>
-      <span className="text-[15px] font-semibold" style={{ color: "var(--text)" }} title={value != null ? String(value) : undefined}>
+    <span className="flex flex-col items-center" style={{ lineHeight: 1.1, minWidth: 0 }}>
+      <span className="text-[9.5px] whitespace-nowrap" style={{ color: "var(--text-3)" }}>{label}</span>
+      <span className="text-[15px] font-semibold whitespace-nowrap" style={{ color: "var(--text)" }} title={value != null ? String(value) : undefined}>
         {value == null ? "" : formatCount(value)}
       </span>
       <span className="flex items-center justify-center" style={{ height: 13 }}>
         {delta != null && <GrowthPill v={delta} />}
       </span>
-    </div>
+    </span>
   );
 }
 
 function GrowthPill({ v }: { v: number }) {
   const color = v > 0 ? "#22a06b" : v < 0 ? "#e5484d" : "var(--text-3)";
   return (
-    <span className="text-[9.5px] font-medium px-1 rounded" style={{ color, background: `color-mix(in srgb, ${color} 12%, transparent)` }}>
+    <span className="text-[9.5px] font-medium px-1 rounded whitespace-nowrap" style={{ color, background: `color-mix(in srgb, ${color} 12%, transparent)` }}>
       {v > 0 ? "+" : ""}{formatCount(v)}
     </span>
+  );
+}
+
+function LevelIcon({ profile }: { profile: UserProfile }) {
+  const key = profile.level === 6 && profile.isSeniorMember ? "h" : String(profile.level);
+  const raw = LEVEL_SVGS[key];
+  if (!raw) return null;
+  const svg = raw.replace(/viewBox="[^"]*"/, `viewBox="${LEVEL_VIEWBOX[key] ?? LEVEL_VIEWBOX["0"]}"`);
+  return (
+    <span
+      className="lv-badge flex-none"
+      style={{ height: LEVEL_H }}
+      title={profile.isSeniorMember ? `硬核会员 Lv${profile.level}` : `Lv${profile.level}`}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
   );
 }
 
@@ -353,40 +420,153 @@ function VipLabel({ profile }: { profile: UserProfile }) {
   );
 }
 
-/** Fans medal using MedalWall's v2 gradient (no hardcoded level colour table). */
-function FansMedal({ profile }: { profile: UserProfile }) {
-  const m = profile.fansMedal!;
-  const start = m.colorStart ?? "var(--accent)";
-  const end = m.colorEnd ?? start;
-  const border = m.colorBorder ?? start;
+/**
+ * 粉丝牌 — MedalWall's own design, not an approximation.
+ *
+ * DOM:  FanMedal › MedalName + LevelCircle
+ * The name and the level number deliberately use different fonts and sizes,
+ * and every colour (including its alpha) comes straight from
+ * `uinfo_medal.v2_medal_color_*`. There is no per-level colour table.
+ */
+function FanMedal({ medal }: { medal: FansMedalData }) {
+  const start = medal.colorStart ?? "var(--accent)";
+  const end = medal.colorEnd ?? start;
+  const border = medal.colorBorder ?? start;
+  const text = medal.colorText ?? "#fff";
+  const level = medal.colorLevel ?? text;
+
   return (
     <span
-      className="inline-flex items-center gap-[3px] text-[10px] font-medium px-1.5 rounded-[3px] leading-none flex-none"
+      className="fan-medal flex-none"
+      title={medal.guardLevel ? `${medal.name} · ${GUARD_NAME[medal.guardLevel] ?? "大航海"}` : medal.name}
       style={{
         background: `linear-gradient(90deg, ${start}, ${end})`,
-        color: m.colorText ?? "#fff",
-        border: `1px solid ${border}`,
-        height: 16,
+        borderColor: border,
+        color: text,
       }}
     >
-      <span className="truncate" style={{ maxWidth: 76 }}>{m.name}</span>
-      <span style={{ color: m.colorLevel ?? m.colorText ?? "#fff" }}>{m.level}</span>
+      <span className="fm-name">
+        <span>{medal.name}</span>
+      </span>
+      <span className="fm-level" style={{ color: level }}>
+        <span>{medal.level}</span>
+      </span>
+      {medal.guardIcon && <img className="fm-guard" src={medal.guardIcon} alt="" draggable={false} referrerPolicy="no-referrer" />}
     </span>
   );
 }
 
+/** guard_level = 0 普通 / 3 舰长 / 2 提督 / 1 总督 */
+const GUARD_NAME: Record<number, string> = { 1: "总督", 2: "提督", 3: "舰长" };
+
 /**
- * Real decoration artwork (`decoration_card.card_url`) with the fan number
- * overlaid. Purely informational: no click target, no mall link.
+ * 动态装扮 — `decoration_card`. The number is an *overlay* on the artwork's
+ * reserved area, never a caption underneath it, and the whole thing is inert.
  */
-function DecorationCard({ decoration, src }: { decoration: DynamicDecoration; src?: string }) {
-  const url = src ?? decoration.cardUrl;
+function Ornament({ decoration, src }: { decoration: DynamicDecoration; src?: string }) {
+  const url = decoration.imageEnhance || src || decoration.cardUrl;
+  const label = decoration.fanNumberText;
+  const numStyle = useMemo(() => ornamentNumberStyle(decoration), [decoration]);
   if (!url) return null;
-  const label = decoration.fanNumberText || (decoration.fanNumber != null ? String(decoration.fanNumber) : "");
   return (
-    <div className="decoration-card flex-none" title={decoration.name}>
-      <img src={url} alt="" className="decoration-img" draggable={false} />
-      {label && <span className="decoration-num" style={{ color: decoration.color ?? "#fff" }}>{label}</span>}
+    <div className="ornament" title={decoration.name}>
+      <img src={url} alt="" className="ornament-img" draggable={false} referrerPolicy="no-referrer" />
+      {label && <span className="ornament-num" style={numStyle}>{label}</span>}
     </div>
+  );
+}
+
+/** `color_format` wins over the flat `fan.color`; gradients become text fills. */
+function ornamentNumberStyle(d: DynamicDecoration): CSSProperties {
+  const cf = d.colorFormat;
+  const colors = (cf?.colors ?? []).filter((c): c is string => !!c);
+  if (colors.length >= 2) {
+    const angle = Number.isFinite(cf?.startPoint) ? Number(cf?.startPoint) : 90;
+    return {
+      backgroundImage: `linear-gradient(${angle}deg, ${colors.join(", ")})`,
+      WebkitBackgroundClip: "text",
+      backgroundClip: "text",
+      color: "transparent",
+    };
+  }
+  if (colors.length === 1) return { color: colors[0] };
+  if (d.color) return { color: d.color };
+  return { color: "#fff" };
+}
+
+/** Level badge, reused by the collapsed header. */
+export { LevelIcon, SexMark, VipLabel };
+
+export function ProfileCard({ mid }: { mid: number }) {
+  const selectedMid = useUIStore((s) => s.selectedMid);
+  const globalFields = useSettingsStore((s) => s.global.fields);
+  const perUserFields = useSettingsStore((s) => s.perUser[mid]?.fields);
+  const fields = useMemo(() => ({ ...globalFields, ...(perUserFields ?? {}) }), [globalFields, perUserFields]);
+  const primaryMid = useSettingsStore((s) => s.global.primaryAccountMid);
+  const collapsed = useSettingsStore((s) => s.global.profileCollapsed);
+  const updateGlobal = useSettingsStore((s) => s.updateGlobal);
+  const { data: subs } = useSubscriptions();
+  const remark = subs?.find((s) => s.mid === mid)?.remark;
+  const { profile, stats, decoration } = useProfileCard(mid, selectedMid === mid);
+
+  // Hooks must run before any conditional return (React rules).
+  const banner = useCachedAsset(profile?.topPhoto, `users/${mid}/banner`);
+  const faceSrc = useCachedAsset(profile?.face, `users/${mid}/avatar`);
+  const pendantSrc = useCachedAsset(profile?.pendantUrl, `users/${mid}/pendant`);
+  const decorationImg = useCachedAsset(decoration?.imageEnhance ?? decoration?.cardUrl, `users/${mid}/decoration`);
+  const growth = useStatsGrowth(mid);
+
+  if (!profile) return <div className="card h-24 animate-pulse" />;
+
+  const toggleCollapsed = () => updateGlobal({ profileCollapsed: !collapsed });
+
+  if (collapsed) {
+    return (
+      <section className="card relative flex-none overflow-hidden">
+        <div className="profile-hoverzone" />
+        <ProfileHandle collapsed onToggle={toggleCollapsed} />
+        <div className="flex items-center gap-2 px-3 py-1.5">
+          <img src={faceSrc ?? undefined} alt="" width={22} height={22}
+            className="rounded-full object-cover flex-none" style={{ background: "var(--surface-2)" }} draggable={false} />
+          <span className="text-[13px] font-medium truncate" style={{ color: "var(--text)" }}>
+            {remark || profile.name}
+          </span>
+          {fields.sex && profile.sex && <SexMark sex={profile.sex} />}
+          {fields.vip && profile.isVip && <VipLabel profile={profile} />}
+          {fields.level && <LevelIcon profile={profile} />}
+          <span className="flex-1" />
+          {fields.follower && stats?.follower != null && (
+            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>{formatCount(stats.follower)} 粉丝</span>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <div className="relative flex-none">
+      <div className="profile-hoverzone" />
+      <ProfileHandle collapsed={false} onToggle={toggleCollapsed} />
+      <ProfileCardView
+        mid={mid}
+        profile={profile}
+        stats={stats}
+        decoration={decoration}
+        remark={remark}
+        fields={fields}
+        growth={growth}
+        assets={{ banner, face: faceSrc, pendant: pendantSrc, decoration: decorationImg }}
+        primaryMid={primaryMid}
+      />
+    </div>
+  );
+}
+
+/** Slim control handle that slides down from the card's top edge on hover. */
+function ProfileHandle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  return (
+    <button className="profile-handle no-drag" onClick={onToggle}>
+      {collapsed ? "展开名片" : "收起名片"}
+    </button>
   );
 }

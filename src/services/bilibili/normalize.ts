@@ -31,13 +31,12 @@ export function normalizeCardProfile(raw: any, mid: number): Partial<UserProfile
   return p;
 }
 
-/** Convert an int color or "#AARRGGBB" string to "#RRGGBB". */
+/** Convert an int color or "#RRGGBB" / "#RRGGBBAA" string to a CSS hex color. */
 function toHexColor(v: any): string | undefined {
   if (v == null) return undefined;
   if (typeof v === "string") {
-    const s = v.replace("#", "");
-    if (s.length === 8) return "#" + s.slice(2); // drop alpha
-    if (s.length === 6) return "#" + s;
+    const s = v.replace(/^#/, "").trim();
+    if (s.length === 6 || s.length === 8) return "#" + s;
     return undefined;
   }
   if (typeof v === "number") {
@@ -45,6 +44,12 @@ function toHexColor(v: any): string | undefined {
   }
   return undefined;
 }
+
+/*
+ * MedalWall's `v2_medal_color_*` values arrive as `#RRGGBBAA` — the alpha is
+ * part of the design (Bilibili renders the medal border/text translucent), so
+ * `toHexColor` keeps all 8 digits and CSS applies the alpha itself.
+ */
 
 /** Normalize any Bilibili asset URL/relative path to https. */
 export function toHttpsUrl(v: unknown): string | undefined {
@@ -133,18 +138,17 @@ export function normalizeMedalWall(raw: any): FansMedal | null {
   const list: any[] = raw?.data?.list ?? [];
   if (!Array.isArray(list) || list.length === 0) return null;
 
-  let best: any = null;
-  for (const item of list) {
-    const info = item?.medal_info;
-    if (!info) continue;
-    const uid = Number(info.target_id ?? info.uid ?? 0);
-    const target = Number(raw?.data?.target_id ?? 0);
-    if (!best) best = item;
-    if (target && uid === target) {
-      best = item;
-      break;
-    }
-  }
+  // 当前佩戴的粉丝牌 = `wearing_status === 1`. Matching the target UID is only
+  // a fallback: Bilibili can answer with a list where nothing is worn.
+  const target = Number(raw?.data?.target_id ?? 0);
+  const worn = list.find((it: any) => Number(it?.medal_info?.wearing_status ?? 0) === 1);
+  const byTarget = target
+    ? list.find((it: any) => {
+        const info = it?.medal_info ?? {};
+        return Number(info.target_id ?? info.uid ?? 0) === target;
+      })
+    : undefined;
+  const best = worn ?? byTarget ?? list.find((it: any) => it?.medal_info);
   if (!best) return null;
 
   const info = best.medal_info ?? {};
@@ -153,13 +157,9 @@ export function normalizeMedalWall(raw: any): FansMedal | null {
     const v = u[key];
     return typeof v === "string" && v.trim() ? v.trim() : undefined;
   };
-  // v2 colours arrive as "#AARRGGBB"; toHexColor normalises them to "#RRGGBB".
   // v2 always wins — the legacy flat colour must never override it.
-  const col = (v2Key: string, legacy: any): string | undefined => {
-    const modern = v2(v2Key);
-    if (modern) return toHexColor(modern) ?? modern;
-    return toHexColor(legacy);
-  };
+  const col = (v2Key: string, legacy: any): string | undefined =>
+    toHexColor(v2(v2Key)) ?? toHexColor(legacy);
 
   const medal: FansMedal = {
     name: String(info.medal_name ?? u.medal_name ?? ""),
@@ -170,10 +170,20 @@ export function normalizeMedalWall(raw: any): FansMedal | null {
     colorBorder: col("v2_medal_color_border", info.medal_color_border),
     colorText: col("v2_medal_color_text", undefined),
     colorLevel: col("v2_medal_color_level", undefined),
-    wearing: true,
+    guardLevel: Number(info.guard_level ?? u.guard_level ?? 0) || undefined,
+    guardIcon: pickUrl(info.guard_icon ?? u.guard_icon),
+    wearing: Number(info.wearing_status ?? 0) === 1 || worn != null,
   };
   if (!medal.name && !medal.colorStart) return null;
   return medal;
+}
+
+/** Accept a full URL or a bare bfs path for an icon field. */
+function pickUrl(v: unknown): string | undefined {
+  if (!v || typeof v !== "string") return undefined;
+  const s = v.trim();
+  if (!s) return undefined;
+  return toHttpsUrl(s);
 }
 
 export function normalizeRelationStat(raw: any, mid: number): Partial<UserStats> {
@@ -266,30 +276,59 @@ function formatCount(n?: number): string {
   return String(n);
 }
 
+/**
+ * 动态装扮卡片 — `modules.module_author.decoration_card`.
+ *
+ * The number is a *display string* from the server: `fan.num_desc` wins, then
+ * `num_prefix + number`, then the bare number. Nothing is re-padded locally.
+ */
 export function normalizeDecoration(raw: any): DynamicDecoration | null {
   const items = raw?.data?.items ?? [];
   // Scan a few recent dynamics for the first valid decorate.
   for (const item of items.slice(0, 8)) {
     const author = item?.modules?.module_author;
-    const dec = author?.decorate ?? author?.decoration_card;
+    const dec = author?.decoration_card ?? author?.decorate;
     if (!dec || typeof dec !== "object" || Object.keys(dec).length === 0) continue;
+
     const fan = dec.fan ?? {};
-    const cardUrl = dec.card_url || dec.big_card_url || dec.image_enhance;
-    // `num_desc` is the zero-padded display number ("005637"); `num_str` is
-    // the older field name and is usually absent on current responses.
-    const fanText = fan.num_desc || fan.num_str || (fan.number != null ? String(fan.number) : "");
+    // `image_enhance` is the high-resolution artwork; `card_url` is the plain one.
+    const cardUrl = dec.image_enhance || dec.card_url || dec.big_card_url;
+    const fanText = fanNumText(fan);
     if (!cardUrl && !dec.name && !fanText) continue;
-    const colors = fan.color_format?.colors;
+
+    const cf = fan.color_format ?? {};
+    const colorFormat: DynamicDecoration["colorFormat"] =
+      cf && (Array.isArray(cf.colors) || Array.isArray(cf.gradients))
+        ? {
+            colors: Array.isArray(cf.colors) ? cf.colors.map((c: any) => toHexColor(c) ?? String(c)) : undefined,
+            gradients: Array.isArray(cf.gradients) ? cf.gradients.map((g: any) => String(g)) : undefined,
+            startPoint: cf.start_point != null ? Number(cf.start_point) : undefined,
+            endPoint: cf.end_point != null ? Number(cf.end_point) : undefined,
+          }
+        : undefined;
+
     return {
       id: dec.id != null ? Number(dec.id) : undefined,
       name: dec.name ? String(dec.name) : undefined,
-      cardUrl: cardUrl ? String(cardUrl) : undefined,
+      cardUrl: cardUrl ? toHttpsUrl(cardUrl) : undefined,
+      imageEnhance: dec.image_enhance ? toHttpsUrl(dec.image_enhance) : undefined,
       jumpUrl: dec.jump_url ? String(dec.jump_url) : undefined,
       fanNumber: fan.number != null ? Number(fan.number) : undefined,
-      fanNumberText: fanText ? String(fanText) : undefined,
-      color: (Array.isArray(colors) && colors[0] ? String(colors[0]).slice(0, 7) : undefined)
-        || (fan.color ? String(fan.color) : undefined),
+      fanNumberText: fanText,
+      color: colorFormat?.colors?.[0] ?? toHexColor(fan.color),
+      colorFormat,
     };
   }
   return null;
+}
+
+/** `num_desc` → `num_prefix + number` → `number`, in that order. */
+function fanNumText(fan: any): string | undefined {
+  const desc = fan?.num_desc ?? fan?.num_str;
+  if (desc != null && String(desc).trim()) return String(desc).trim();
+  if (fan?.number != null) {
+    const prefix = fan?.num_prefix != null ? String(fan.num_prefix) : "";
+    return `${prefix}${fan.number}`;
+  }
+  return undefined;
 }

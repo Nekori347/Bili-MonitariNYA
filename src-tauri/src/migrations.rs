@@ -81,5 +81,15 @@ CREATE INDEX IF NOT EXISTS idx_stats_snapshot_mid_time ON stats_snapshots (mid, 
 "#,
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "cache_dynamic_decoration",
+            sql: r#"
+-- Decoration card (动态装扮编号) so the profile hero restores instantly on
+-- launch instead of waiting for the risk-controlled dynamic feed.
+ALTER TABLE users_cache ADD COLUMN decoration_json TEXT;
+"#,
+            kind: MigrationKind::Up,
+        },
     ]
 }

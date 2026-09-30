@@ -106,6 +106,22 @@ body {
   gap: 6px;
 }
 
+/* App logo: a small in-place hover grow. Transform only, so nothing in the
+   titlebar moves and the bar never changes height. */
+.app-logo {
+  display: block;
+  border-radius: 3px;
+  transform-origin: center center;
+  transition: transform 150ms ease-out, box-shadow 150ms ease-out;
+  will-change: transform;
+}
+.app-logo:hover {
+  transform: scale(1.2);
+  position: relative;
+  z-index: 30;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
 .drag-region {
   -webkit-app-region: drag;
   flex: 1;
@@ -158,7 +174,16 @@ body {
   animation: wiggle 0.3s ease-in-out infinite;
 }
 
-/* delete button: morph circle -> capsule with "确认" */
+/* Delete button: morph circle -> capsule with "确认".
+   The hover wobble lives in the keyframes themselves — a `transform` on the
+   same element would be overridden by the animation and never show up. */
+@keyframes delete-wobble {
+  0%   { transform: rotate(0deg)   scale(1.06); }
+  25%  { transform: rotate(-2.5deg) scale(1.08); }
+  50%  { transform: rotate(1.5deg)  scale(1.05); }
+  75%  { transform: rotate(-1deg)   scale(1.07); }
+  100% { transform: rotate(0deg)   scale(1.06); }
+}
 .delete-btn {
   width: 18px;
   height: 18px;
@@ -172,6 +197,7 @@ body {
   cursor: pointer;
   overflow: hidden;
   white-space: nowrap;
+  transform-origin: center center;
   transition: width 180ms ease, border-radius 180ms ease, opacity 180ms ease;
   flex: none;
 }
@@ -179,10 +205,14 @@ body {
   width: 44px;
   border-radius: 999px;
 }
-.delete-btn:hover {
+/* Only the button reacts — the row and the sidebar stay perfectly still. */
+.delete-btn:not(.confirming):hover {
   filter: brightness(1.15);
-  transform: scale(1.06);
-  animation: wiggle 0.3s ease-in-out infinite;
+  animation: delete-wobble 0.5s ease-in-out infinite;
+}
+.delete-btn.confirming:hover {
+  filter: brightness(1.12);
+  transform: scale(1.05);
 }
 .delete-btn svg {
   stroke-width: 2.2;
@@ -244,28 +274,36 @@ body {
   border-color: var(--accent);
 }
 
-/* ---- Collapsed mini sidebar: avatars + status dots only ---- */
+/* ---- Collapsed mini sidebar: avatars + status dots only ----
+   The strip is a fixed 40px rail. Nothing inside may widen its scrollable
+   area, so the list clips horizontally and every child is measured against
+   the rail width — the width itself never changes. */
 .mini-side {
   flex: none;
   min-height: 0;
   display: flex;
   flex-direction: column;
   padding: 6px 0;
+  overflow: hidden;
 }
 .mini-list {
   flex: 1;
   min-height: 0;
+  width: 100%;
   overflow-y: auto;
-  overflow-x: visible;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 5px;
   padding: 0 3px;
+  box-sizing: border-box;
 }
 .mini-item {
   position: relative;
   flex: none;
+  /* A scaled / translated child must not inflate the rail's scrollWidth. */
+  max-width: 100%;
 }
 .mini-btn {
   position: relative;
@@ -280,6 +318,7 @@ body {
   justify-content: center;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
+  flex: none;
 }
 .mini-btn:hover {
   background: var(--hover);
@@ -335,13 +374,12 @@ body {
 }
 
 /* App-rendered tooltip (never an HTML title tooltip).
-   Same glass language as the certification tooltip: blur, rounding,
-   hairline border, soft shadow. */
+   Rendered through a portal onto <body>: it must sit *outside* the 40px rail,
+   because an absolutely-positioned child would widen the rail's content box and
+   give the collapsed sidebar a horizontal scrollbar. */
 .mini-tip {
-  position: absolute;
-  left: calc(100% + 8px);
-  top: 50%;
-  transform: translateY(-50%) translateX(-4px);
+  position: fixed;
+  transform: translateY(-50%);
   min-width: 88px;
   max-width: 190px;
   padding: 6px 9px;
@@ -352,15 +390,14 @@ body {
   backdrop-filter: blur(14px) saturate(1.3);
   -webkit-backdrop-filter: blur(14px) saturate(1.3);
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.12s ease, transform 0.12s ease;
-  z-index: 40;
+  z-index: 80;
   white-space: nowrap;
   line-height: 1.5;
+  animation: tip-in 0.12s ease-out;
 }
-.mini-item:hover .mini-tip {
-  opacity: 1;
-  transform: translateY(-50%) translateX(0);
+@keyframes tip-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .mini-tip-1 {
   font-size: 12px;
@@ -383,6 +420,190 @@ body {
   color: var(--text-3);
 }
 
+/* ---- Video metric column: icon + value, growth pill centered underneath ----
+   A column is `flex: 0 0 auto` with a min-width, so its lane is stable for
+   ordinary values but still widens for a long one instead of clipping it. */
+.data-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  line-height: 1.15;
+  flex: 0 0 auto;
+}
+/* Narrow tier: every lane shrinks equally and the icon stacks over its value. */
+.is-narrow .data-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.data-col-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  font-size: 11px;
+}
+/* Narrow tier only: the icon sits above its value instead of beside it. */
+.data-col-value.stacked {
+  flex-direction: column;
+  gap: 1px;
+  font-size: 10px;
+}
+.data-col-icon {
+  display: inline-flex;
+  flex: none;
+  width: 11px;
+  height: 11px;
+  align-items: center;
+  justify-content: center;
+}
+.data-col-icon > svg {
+  display: block;
+  width: 11px;
+  height: 11px;
+  flex: none;
+}
+/* Never `overflow: hidden` — a clipped Chinese character is worse than a
+   wider lane. The text simply keeps its natural width. */
+.data-col-text {
+  white-space: nowrap;
+}
+.data-col-growth {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 12px;
+  width: 100%;
+}
+.growth-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+/* The pinned metric's own slot at the row's trailing edge. */
+.video-trailing {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+/* ---- 装扮编号: artwork + overlaid fan number ---------------------------- */
+.ornament {
+  position: relative;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  /* Purely informational — never a link into the decoration shop. */
+  pointer-events: none;
+  cursor: default;
+  user-select: none;
+}
+.ornament-img {
+  height: 48px;
+  width: auto;
+  max-width: 132px;
+  object-fit: contain;
+  display: block;
+}
+/* Preview only: reserves the artwork's slot when the UP wears no decoration. */
+.ornament-placeholder {
+  display: block;
+  width: 96px;
+  height: 48px;
+  border-radius: 8px;
+  border: 1px dashed var(--accent-ring);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+/* Sits in the artwork's reserved area on the left of the card, exactly like
+   Bilibili's own `.bili-dyn-ornament__type--3 span`. */
+.ornament-num {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 44%;
+  text-align: center;
+  font-family: fanscard, "Reeji-CloudHuPo-GBK", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  transform: translateY(-50%) scale(0.7);
+  transform-origin: center center;
+  pointer-events: none;
+}
+/* Only inside the settings preview does it need to accept a click. */
+.pz-scope .ornament,
+.pz-scope .ornament-num {
+  pointer-events: auto;
+}
+
+/* ---- 粉丝牌: name block + level disc, both from MedalWall colours -------- */
+.fan-medal {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 14px;
+  padding-left: 5px;
+  padding-right: 2px;
+  border: 0.5px solid;
+  border-radius: 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  user-select: none;
+  line-height: 1;
+}
+.fm-name {
+  display: inline-flex;
+  align-items: center;
+  height: 14px;
+  min-width: 0;
+}
+/* Bilibili renders the name larger and scales it down; `zoom` is used instead
+   of `transform` so the layout box shrinks with the glyphs. */
+.fm-name > span {
+  display: inline-block;
+  font-size: 18px;
+  line-height: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  max-width: 152px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  zoom: 0.5;
+}
+.fm-level {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 11.5px;
+  height: 11.5px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.22);
+  flex: none;
+}
+.fm-level > span {
+  display: inline-block;
+  font-family: "Reeji-CloudHuPo-GBK", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 14px;
+  font-weight: 500;
+  zoom: 0.5;
+}
+.fm-guard {
+  height: 12px;
+  width: auto;
+  flex: none;
+  margin-left: 1px;
+}
+
 /* Click-to-toggle preview zones (settings → 名片 / 视频) */
 .pz-scope .pz {
   position: relative;
@@ -399,38 +620,97 @@ body {
 .pz-scope .pz.off {
   opacity: 0.3;
 }
-.pz-badge {
+/* Names the *feature* (粉丝牌 / 认证 / 等级 …), never the sample data. */
+.pz-tag {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 13px;
-  height: 13px;
-  padding: 0 2px;
+  left: 50%;
+  bottom: calc(100% + 2px);
+  transform: translateX(-50%);
+  padding: 1px 6px;
   border-radius: 999px;
   background: var(--accent);
   color: #fff;
-  font-size: 9px;
-  line-height: 13px;
-  text-align: center;
+  font-size: 9.5px;
+  line-height: 14px;
+  white-space: nowrap;
   opacity: 0;
   transition: opacity 0.12s ease;
   pointer-events: none;
+  z-index: 5;
 }
-.pz-scope .pz:hover .pz-badge {
+.pz-scope .pz:hover .pz-tag {
   opacity: 1;
 }
-.pz-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  line-height: 1.15;
+.pz-pin {
+  position: absolute;
+  right: -4px;
+  top: -6px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #00aeec;
+  color: #fff;
   font-size: 9px;
-  color: var(--text-3);
+  line-height: 13px;
+  pointer-events: none;
 }
-.pz-stat b {
+.pz-scope .pz.off .pz-pin {
+  opacity: 0.5;
+}
+
+/* ---- Settings bits ---- */
+.reset-btn {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.reset-btn:hover {
+  color: var(--accent);
+  background: var(--hover);
+}
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.link-btn:hover {
+  text-decoration: underline;
+}
+.legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+.override-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-2);
   font-size: 11px;
-  font-weight: 600;
-  color: var(--text);
+  cursor: pointer;
+}
+.override-chip:hover {
+  color: #e5484d;
+  border-color: color-mix(in srgb, #e5484d 45%, var(--line));
 }
 
 /* refresh progress: 2px line between profile card and video list */
@@ -534,40 +814,6 @@ body {
 }
 .profile-handle:hover {
   color: var(--accent);
-}
-
-/* decoration artwork: real asset, non-interactive, number overlaid */
-.decoration-card {
-  position: relative;
-  width: 46px;
-  height: 42px;
-  border-radius: 6px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  background: var(--surface-2);
-  pointer-events: none;
-  cursor: default;
-  user-select: none;
-}
-.decoration-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: right center;
-  display: block;
-}
-.decoration-num {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  text-align: center;
-  font-size: 8.5px;
-  line-height: 1.35;
-  letter-spacing: 0.02em;
-  background: rgba(0, 0, 0, 0.42);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
 }
 
 /* login QR popover: opens upward from the login button, overlaying the panel */

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { FieldVisibility, VideoFieldKey } from "../../types/settings";
 import { VIDEO_FIELD_LABELS } from "../../types/settings";
-import { Grip } from "../../components/ui/Icons";
+import { Clock, Coin, Eye, Grip, Play, ThumbUp } from "../../components/ui/Icons";
 
 const VIS_KEY: Record<VideoFieldKey, keyof FieldVisibility> = {
   view: "videoView",
@@ -11,9 +11,32 @@ const VIS_KEY: Record<VideoFieldKey, keyof FieldVisibility> = {
   pubdate: "videoView", // 投稿时间 is always shown
 };
 
+const SAMPLE: Record<VideoFieldKey, string> = {
+  view: "1.2万",
+  like: "890",
+  coin: "233",
+  online: "75",
+  pubdate: "3天前",
+};
+
+const SAMPLE_GROWTH: Partial<Record<VideoFieldKey, string>> = {
+  view: "+320",
+  like: "+18",
+  coin: "+4",
+};
+
+const ICON: Record<VideoFieldKey, React.ReactNode> = {
+  view: <Play size={11} />,
+  like: <ThumbUp size={11} />,
+  coin: <Coin size={11} />,
+  online: <Eye size={11} />,
+  pubdate: <Clock size={11} />,
+};
+
 /**
- * Video settings preview: click a metric cell to toggle it, drag the list to
- * choose the column order, and pick the one pinned to the far right.
+ * Video settings preview. It mirrors the real row: the visible metrics flow on
+ * the left and the field pinned to the far right owns its own trailing slot, so
+ * the checkbox list below is the only thing that decides what sits at the edge.
  */
 export function VideoPreview({
   fields,
@@ -32,13 +55,9 @@ export function VideoPreview({
 }) {
   const [dragKey, setDragKey] = useState<VideoFieldKey | null>(null);
 
-  const value: Record<VideoFieldKey, string> = {
-    view: "1.2万",
-    like: "890",
-    coin: "233",
-    online: "75",
-    pubdate: "3天前",
-  };
+  const shown = order.filter((k) => k === "pubdate" || fields[VIS_KEY[k]]);
+  const flow = shown.filter((k) => k !== pinnedRight);
+  const trailing = shown.includes(pinnedRight) ? pinnedRight : null;
 
   const toggle = (k: VideoFieldKey) => {
     if (k === "pubdate") return;
@@ -46,38 +65,51 @@ export function VideoPreview({
     onToggle(key, !fields[key]);
   };
 
-  const shown = order.filter((k) => k === "pubdate" || fields[VIS_KEY[k]]);
+  const column = (k: VideoFieldKey, extra?: React.ReactNode) => {
+    const on = k === "pubdate" ? true : fields[VIS_KEY[k]];
+    return (
+      <span
+        key={k}
+        className={`pz${on ? "" : " off"}`}
+        title={`${VIDEO_FIELD_LABELS[k]}：点击${on ? "隐藏" : "显示"}`}
+        onClick={() => toggle(k)}
+      >
+        <span className="data-col" style={{ width: 58 }}>
+          <span className="data-col-value">
+            <span className="data-col-icon">{ICON[k]}</span>
+            <span className="data-col-text">{SAMPLE[k]}</span>
+          </span>
+          <span className="data-col-growth">
+            {SAMPLE_GROWTH[k] && (
+              <span className="growth-pill" style={{ color: "#22a06b", background: "color-mix(in srgb, #22a06b 12%, transparent)" }}>
+                {SAMPLE_GROWTH[k]}
+              </span>
+            )}
+          </span>
+        </span>
+        <span className="pz-tag">{on ? "✓" : "✕"} {VIDEO_FIELD_LABELS[k]}</span>
+        {extra}
+      </span>
+    );
+  };
 
   return (
     <div className="flex flex-col gap-3">
+      {/* The row itself, laid out exactly like the real one. */}
       <div className="pz-scope flex gap-2.5 p-2 rounded-lg" style={{ border: "1px solid var(--line)", background: "var(--surface-2)" }}>
-        <span className="flex-none rounded-md" style={{ width: 68, height: 38, background: "linear-gradient(135deg,#8fa2c8,#c8d4ea)" }} />
-        <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+        <span className="flex-none rounded-md" style={{ width: 72, height: 42, background: "linear-gradient(135deg,#8fa2c8,#c8d4ea)" }} />
+        <div className="flex-1 min-w-0 flex flex-col">
           <span className="block text-[12px] font-medium" style={{ color: "var(--text)" }}>示例投稿标题</span>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {shown.map((k) => {
-              const key = VIS_KEY[k];
-              const on = k === "pubdate" ? true : fields[key];
-              return (
-                <span
-                  key={k}
-                  className={`pz${on ? "" : " off"}`}
-                  title={`${VIDEO_FIELD_LABELS[k]}：点击${on ? "隐藏" : "显示"}`}
-                  onClick={() => toggle(k)}
-                >
-                  <span className="text-[10.5px] px-1.5 py-0.5 rounded" style={{ background: "var(--surface)", color: "var(--text-2)" }}>
-                    {VIDEO_FIELD_LABELS[k]} {value[k]}
-                  </span>
-                  <span className="pz-badge">{on ? "✓" : "✕"}</span>
-                </span>
-              );
-            })}
+          <div className="flex items-start gap-1.5 mt-1">
+            <div className="flex items-start gap-1 min-w-0">{flow.map((k) => column(k))}</div>
+            <span className="flex-1" />
+            {trailing && column(trailing, <span className="pz-pin">最右</span>)}
           </div>
         </div>
       </div>
 
       <div>
-        <div className="text-[12px] mb-1.5" style={{ color: "var(--text-2)" }}>字段顺序（拖动排序）</div>
+        <div className="text-[12px] mb-1.5" style={{ color: "var(--text-2)" }}>字段顺序</div>
         <div className="flex flex-col gap-1">
           {order.map((k, i) => (
             <div
@@ -111,7 +143,7 @@ export function VideoPreview({
           ))}
         </div>
         <div className="text-[11px] mt-1.5" style={{ color: "var(--text-3)" }}>
-          每列宽度固定，数字位数变化不会推动其它字段。
+          拖动可以调整字段的先后顺序；“固定到最右”的字段会单独贴在每条投稿的右边缘。
         </div>
       </div>
     </div>

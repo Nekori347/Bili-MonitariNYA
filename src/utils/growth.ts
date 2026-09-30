@@ -1,5 +1,4 @@
 import { getDb } from "../services/database/db";
-import { getSnapshotNear, type Snapshot } from "../services/database/snapshots";
 import type { StatsField, StatsSnapshot } from "../services/database/statsSnapshots";
 
 export interface Growth {
@@ -8,38 +7,65 @@ export interface Growth {
   month: number | null;
 }
 
-const DAY = 24 * 60 * 60 * 1000;
+/** Day/week/month growth for every profile stats column. */
+export type StatsGrowthMap = Record<StatsField, Growth>;
 
-/**
- * Compute day/week/month growth for a metric by comparing its current value
- * against the snapshot closest to now-1d / now-7d / now-30d.
- * Returns null when there is not enough history ("统计中").
- */
-export async function computeGrowth(
-  bvid: string,
-  current: number | null | undefined,
-  metric: keyof Pick<Snapshot, "viewCount" | "likeCount" | "coinCount">,
-): Promise<Growth> {
-  const now = Date.now();
-  if (current == null) return { day: null, week: null, month: null };
-
-  const [d, w, m] = await Promise.all([
-    getSnapshotNear(bvid, now - DAY),
-    getSnapshotNear(bvid, now - 7 * DAY),
-    getSnapshotNear(bvid, now - 30 * DAY),
-  ]);
-
-  const diff = (s: Snapshot | null): number | null => {
-    if (!s) return null;
-    const before = s[metric];
-    if (before == null) return null;
-    return current - before;
-  };
-
-  return { day: diff(d), week: diff(w), month: diff(m) };
+/** Day/week/month growth for one video's per-metric counters. */
+export interface VideoGrowth {
+  view: Growth;
+  like: Growth;
+  coin: Growth;
 }
 
-const EMPTY: Growth = { day: null, week: null, month: null };
+export type VideoGrowthMap = Record<string, VideoGrowth>;
+
+const DAY = 24 * 60 * 60 * 1000;
+
+export const EMPTY_GROWTH: Growth = { day: null, week: null, month: null };
+
+export const EMPTY_VIDEO_GROWTH: VideoGrowth = {
+  view: { ...EMPTY_GROWTH },
+  like: { ...EMPTY_GROWTH },
+  coin: { ...EMPTY_GROWTH },
+};
+
+/** Window start offsets: now - offset is the instant we compare against. */
+const WINDOWS: [keyof Growth, number][] = [
+  ["day", DAY],
+  ["week", 7 * DAY],
+  ["month", 30 * DAY],
+];
+
+/**
+ * Pick, for each window, the newest sample at or before `now - offset` and
+ * return `current - sample`. Missing history leaves the window null (rendered
+ * blank, never a fake "+0").
+ */
+function growthFrom(
+  samples: { capturedAt: number; value: number | null }[],
+  current: number | null | undefined,
+): Growth {
+  const out: Growth = { ...EMPTY_GROWTH };
+  if (current == null) return out;
+  const now = Date.now();
+  for (const [key, offset] of WINDOWS) {
+    const target = now - offset;
+    let best: number | null = null;
+    // `samples` is oldest-first, so the last one at or before the target wins.
+    for (const s of samples) {
+      if (s.capturedAt <= target) best = s.value;
+      else break;
+    }
+    if (best == null) continue;
+    // A zero delta is noise, not growth — leave the slot blank.
+    if (current !== best) out[key] = current - best;
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ *
+ * Profile stats growth (关注 / 粉丝 / 获赞 / 播放 / 投稿)
+ * ------------------------------------------------------------------ */
 
 /** All stats snapshots from the last 31 days, oldest first (one query). */
 async function recentStatsSnapshots(mid: number): Promise<StatsSnapshot[]> {
@@ -59,45 +85,81 @@ async function recentStatsSnapshots(mid: number): Promise<StatsSnapshot[]> {
   }));
 }
 
-/**
- * Day/week/month growth for the profile stats row. No snapshot old enough for
- * a window means that window stays null (rendered as blank, never "—").
- */
 export async function computeStatsGrowth(
   mid: number,
   current: Partial<Record<StatsField, number | null>>,
-): Promise<Record<StatsField, Growth>> {
-  const out: Record<StatsField, Growth> = {
-    following: { ...EMPTY },
-    follower: { ...EMPTY },
-    likes: { ...EMPTY },
-    totalViews: { ...EMPTY },
-    videoCount: { ...EMPTY },
+): Promise<StatsGrowthMap> {
+  const out: StatsGrowthMap = {
+    following: { ...EMPTY_GROWTH },
+    follower: { ...EMPTY_GROWTH },
+    likes: { ...EMPTY_GROWTH },
+    totalViews: { ...EMPTY_GROWTH },
+    videoCount: { ...EMPTY_GROWTH },
   };
   const snaps = await recentStatsSnapshots(mid);
   if (snaps.length === 0) return out;
 
-  const fields = Object.keys(out) as StatsField[];
-  for (const field of fields) {
-    const now = current[field];
-    if (now == null) continue;
-    const targets: [keyof Growth, number][] = [
-      ["day", Date.now() - DAY],
-      ["week", Date.now() - 7 * DAY],
-      ["month", Date.now() - 30 * DAY],
-    ];
-    for (const [key, ts] of targets) {
-      let best: StatsSnapshot | null = null;
-      for (const s of snaps) {
-        if (s.capturedAt <= ts) best = s;
-        else break;
-      }
-      const before = best?.[field];
-      if (before == null) continue;
-      const delta = now - before;
-      // A zero delta is noise, not growth — leave the slot blank.
-      if (delta !== 0) out[field][key] = delta;
-    }
+  for (const field of Object.keys(out) as StatsField[]) {
+    out[field] = growthFrom(
+      snaps.map((s) => ({ capturedAt: s.capturedAt, value: s[field] })),
+      current[field],
+    );
   }
   return out;
+}
+
+/* ------------------------------------------------------------------ *
+ * Video growth (播放 / 点赞 / 投币)
+ * ------------------------------------------------------------------ */
+
+/** Shape of a video list entry the growth pass needs. */
+export interface GrowthSubject {
+  bvid: string;
+  view: number | null;
+  like: number | null;
+  coin: number | null;
+}
+
+/**
+ * Day/week/month growth for a whole video list in ONE query, so hydrating a
+ * cached dashboard stays cheap (no per-video round trips).
+ */
+export async function computeVideoGrowthMap(
+  mid: number,
+  items: GrowthSubject[],
+): Promise<VideoGrowthMap> {
+  const map: VideoGrowthMap = {};
+  if (items.length === 0) return map;
+
+  const db = await getDb();
+  const rows: any[] = await db.select(
+    `SELECT bvid, captured_at, view_count, like_count, coin_count
+       FROM video_snapshots
+      WHERE mid = $1 AND captured_at >= $2
+      ORDER BY bvid ASC, captured_at ASC`,
+    [mid, Date.now() - 31 * DAY],
+  );
+
+  const byBvid = new Map<string, { capturedAt: number; view: number | null; like: number | null; coin: number | null }[]>();
+  for (const r of rows) {
+    const key = String(r.bvid);
+    const list = byBvid.get(key) ?? [];
+    list.push({
+      capturedAt: Number(r.captured_at),
+      view: r.view_count != null ? Number(r.view_count) : null,
+      like: r.like_count != null ? Number(r.like_count) : null,
+      coin: r.coin_count != null ? Number(r.coin_count) : null,
+    });
+    byBvid.set(key, list);
+  }
+
+  for (const v of items) {
+    const snaps = byBvid.get(v.bvid) ?? [];
+    map[v.bvid] = {
+      view: growthFrom(snaps.map((s) => ({ capturedAt: s.capturedAt, value: s.view })), v.view),
+      like: growthFrom(snaps.map((s) => ({ capturedAt: s.capturedAt, value: s.like })), v.like),
+      coin: growthFrom(snaps.map((s) => ({ capturedAt: s.capturedAt, value: s.coin })), v.coin),
+    };
+  }
+  return map;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useRemoveSubscriptions, useUpdateSubscription } from "../../queries/subscriptions";
@@ -86,6 +87,7 @@ export function Sidebar({ subs, loading, collapsed, locked }: Props) {
 function MiniList({ subs, faces, showDot }: { subs: Subscription[]; faces: Record<number, string>; showDot: boolean }) {
   const selectedMid = useUIStore((s) => s.selectedMid);
   const setSelectedMid = useUIStore((s) => s.setSelectedMid);
+  const [tip, setTip] = useState<{ sub: Subscription; y: number } | null>(null);
 
   return (
     <div className="mini-side" style={{ width: MINI_W }}>
@@ -95,6 +97,8 @@ function MiniList({ subs, faces, showDot }: { subs: Subscription[]; faces: Recor
             <button
               className="mini-btn"
               style={selectedMid === sub.mid ? { borderColor: "var(--accent)" } : undefined}
+              onMouseEnter={(e) => setTip({ sub, y: e.currentTarget.getBoundingClientRect().top + e.currentTarget.offsetHeight / 2 })}
+              onMouseLeave={() => setTip((t) => (t?.sub.mid === sub.mid ? null : t))}
               onClick={() => {
                 setSelectedMid(sub.mid);
                 if (sub.hasUnreadUpdate) void markUnread(sub.mid, false);
@@ -103,21 +107,25 @@ function MiniList({ subs, faces, showDot }: { subs: Subscription[]; faces: Recor
               <Avatar mid={sub.mid} face={faces[sub.mid]} name={sub.name} size={24} />
               {showDot && sub.hasUnreadUpdate && <span className="mini-dot-new" />}
             </button>
-
-            <div className="mini-tip" role="tooltip">
-              {sub.remark ? (
-                <>
-                  <div className="mini-tip-1">{sub.remark}</div>
-                  <div className="mini-tip-2">{sub.name}</div>
-                </>
-              ) : (
-                <div className="mini-tip-1">{sub.name || `UID ${sub.mid}`}</div>
-              )}
-              <div className="mini-tip-3">UID {sub.mid}</div>
-            </div>
           </div>
         ))}
       </div>
+      {/* Portaled onto <body>: an in-rail tooltip would extend the scrollable
+          area and give the collapsed sidebar a horizontal scrollbar. */}
+      {tip && createPortal(
+        <div className="mini-tip" role="tooltip" style={{ left: MINI_W + 10, top: tip.y }}>
+          {tip.sub.remark ? (
+            <>
+              <div className="mini-tip-1">{tip.sub.remark}</div>
+              <div className="mini-tip-2">{tip.sub.name}</div>
+            </>
+          ) : (
+            <div className="mini-tip-1">{tip.sub.name || `UID ${tip.sub.mid}`}</div>
+          )}
+          <div className="mini-tip-3">UID {tip.sub.mid}</div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -146,7 +154,6 @@ function FullList({
   const updateSub = useUpdateSubscription();
   const removeSubs = useRemoveSubscriptions();
   const qc = useQueryClient();
-  const setRefreshing = useUIStore((s) => s.setRefreshing);
 
   /* ---- delete mode: every stage is reversible, nothing is deleted until 保存 ---- */
   const [deleteMode, setDeleteMode] = useState(false);
@@ -245,13 +252,14 @@ function FullList({
     window.addEventListener("pointerup", onUp);
   };
 
-  /** Re-enabling auto refresh: quietly refetch now, keep the cache on screen. */
+  /**
+   * Re-enabling auto refresh refetches quietly: this is a background catch-up,
+   * so it must not flash the progress line (only explicit refreshes may).
+   */
   const enableAndRefresh = (mid: number) => {
-    setRefreshing(true);
     void qc.invalidateQueries({ queryKey: ["profile", mid] });
     void qc.invalidateQueries({ queryKey: ["stats", mid] });
     void qc.invalidateQueries({ queryKey: ["videos", mid] });
-    window.setTimeout(() => setRefreshing(false), 1500);
   };
 
   const leftLabel = confirmMid != null ? "取消确认" : pending.size > 0 ? "撤销全部" : "取消";

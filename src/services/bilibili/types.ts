@@ -34,12 +34,20 @@ export interface FansMedal {
   name: string;
   level: number;
   medalId?: number;
+  /**
+   * MedalWall's `v2_medal_color_*` values, kept exactly as served — they are
+   * 8-digit `#RRGGBBAA` hex, so the alpha is part of the design.
+   */
   colorStart?: string;
   colorEnd?: string;
   colorBorder?: string;
   colorText?: string;
   /** Per-level text color (v2_medal_color_level) — used by the level number. */
   colorLevel?: string;
+  /** 0 普通 / 3 舰长 / 2 提督 / 1 总督 */
+  guardLevel?: number;
+  /** 大航海图标，服务端直接下发时优先使用。 */
+  guardIcon?: string;
   wearing?: boolean;
 }
 
@@ -90,14 +98,25 @@ export interface OnlineStats {
   isEstimate: boolean;
 }
 
+/** `decoration_card.fan.color_format` — the real gradient behind the fan number. */
+export interface DecorationColorFormat {
+  colors?: string[];
+  startPoint?: number;
+  endPoint?: number;
+  gradients?: string[];
+}
+
 export interface DynamicDecoration {
   id?: number;
   name?: string;
   cardUrl?: string;
+  /** `image_enhance` — the high-resolution variant of the artwork. */
+  imageEnhance?: string;
   jumpUrl?: string;
   fanNumber?: number;
   fanNumberText?: string;
   color?: string;
+  colorFormat?: DecorationColorFormat;
 }
 
 export type BiliErrorType =

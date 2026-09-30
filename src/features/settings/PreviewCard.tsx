@@ -1,98 +1,141 @@
-import type { FieldVisibility } from "../../types/settings";
+import { useMemo, type ReactNode } from "react";
+import { ProfileCardView } from "../profile-card/ProfileCard";
+import { useCachedAsset } from "../../utils/useCachedAsset";
+import { useSnapshot } from "../../store/dashboardStore";
+import { useSettingsStore } from "../../store/settingsStore";
+import { EMPTY_GROWTH, type StatsGrowthMap } from "../../utils/growth";
+import type { UserProfile, UserStats } from "../../services/bilibili/types";
+import {
+  FIELD_HINTS,
+  FIELD_LABELS,
+  type FieldVisibility,
+} from "../../types/settings";
 
 /**
- * "成品 Preview 映射开关": a scaled-down replica of the profile card where each
- * element IS its own switch. Clicking a region flips that field, so the settings
- * page never shows a wall of separate switches.
- *
- * Elements are laid out side by side (rather than overlapping as in the real
- * card) so every zone stays independently clickable.
+ * Used only when no subscription has been loaded yet, so the layout still has
+ * something to draw. It is never the source of a setting's name — every zone is
+ * labelled by what it controls (粉丝牌 / 认证 / 大会员 / 等级 …).
  */
-function Zone({
-  field,
-  fields,
-  onToggle,
-  children,
-}: {
-  field: keyof FieldVisibility;
-  fields: FieldVisibility;
-  onToggle: (k: keyof FieldVisibility, v: boolean) => void;
-  children: React.ReactNode;
-}) {
-  const on = fields[field];
-  return (
-    <span
-      className={`pz${on ? "" : " off"}`}
-      title={`${on ? "点击隐藏" : "点击显示"}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onToggle(field, !on);
-      }}
-    >
-      {children}
-      <span className="pz-badge">{on ? "✓" : "✕"}</span>
-    </span>
-  );
-}
+const DEMO_PROFILE: UserProfile = {
+  mid: 0,
+  name: "示例用户名",
+  face: "/icons/icon.png",
+  sign: "这里显示 UP 主的个人简介",
+  level: 6,
+  sex: "男",
+  isSeniorMember: false,
+  isVip: true,
+  vipType: 1,
+  vipLabel: "大会员",
+  official: { title: "bilibili 认证示例", type: 0, role: 1 },
+  fansMedal: {
+    name: "粉丝牌",
+    level: 21,
+    // Real v2 values keep their alpha byte — the same shape MedalWall returns.
+    colorStart: "#5866C799",
+    colorEnd: "#5866C7CC",
+    colorBorder: "#FFFFFF40",
+    colorText: "#FFFFFFFF",
+    colorLevel: "#FFFFFFFF",
+    wearing: true,
+  },
+};
 
+const DEMO_STATS: UserStats = {
+  mid: 0,
+  following: 2676,
+  follower: 11000,
+  likes: 431000,
+  totalViews: 3080000,
+  videoCount: 98,
+};
+
+const DEMO_GROWTH: StatsGrowthMap = {
+  following: { day: 2, week: 11, month: 40 },
+  follower: { day: 120, week: 830, month: 3200 },
+  likes: { day: 640, week: 4200, month: 16000 },
+  totalViews: { day: 2100, week: 13000, month: 52000 },
+  videoCount: { day: 0, week: 1, month: 3 },
+} as StatsGrowthMap;
+
+const EMPTY_GROWTH_MAP: StatsGrowthMap = {
+  following: EMPTY_GROWTH,
+  follower: EMPTY_GROWTH,
+  likes: EMPTY_GROWTH,
+  totalViews: EMPTY_GROWTH,
+  videoCount: EMPTY_GROWTH,
+};
+
+/**
+ * 用户名片设置 Preview. It renders the *real* profile card component, so the
+ * banner, avatar stack, level, certification, name block, fans medal,
+ * decoration and stats all sit exactly where they do on the main page — this
+ * page never re-implements the layout.
+ */
 export function PreviewCard({
+  mid,
   fields,
   onToggle,
 }: {
+  mid: number | null;
   fields: FieldVisibility;
   onToggle: (k: keyof FieldVisibility, v: boolean) => void;
 }) {
-  const z = (field: keyof FieldVisibility, node: React.ReactNode) => (
-    <Zone field={field} fields={fields} onToggle={onToggle}>{node}</Zone>
+  const snapshot = useSnapshot(mid ?? -1);
+  const period = useSettingsStore((s) => s.global.growthPeriod);
+
+  const profile = snapshot?.profile ?? DEMO_PROFILE;
+  const stats = snapshot?.stats ?? (snapshot?.profile ? undefined : DEMO_STATS);
+  const decoration = snapshot?.decoration ?? null;
+  const growth = snapshot?.statsGrowth ?? (snapshot?.profile ? EMPTY_GROWTH_MAP : DEMO_GROWTH);
+
+  const previewMid = snapshot?.profile ? (mid ?? 0) : 0;
+  const banner = useCachedAsset(profile.topPhoto, `users/${previewMid}/banner`);
+  const face = useCachedAsset(profile.face, `users/${previewMid}/avatar`);
+  const pendant = useCachedAsset(profile.pendantUrl, `users/${previewMid}/pendant`);
+  const decorationImg = useCachedAsset(
+    decoration?.imageEnhance ?? decoration?.cardUrl,
+    `users/${previewMid}/decoration`,
+  );
+
+  const zone = useMemo(
+    () =>
+      (field: keyof FieldVisibility, node: ReactNode): ReactNode => {
+        const on = fields[field];
+        return (
+          <span
+            className={`pz${on ? "" : " off"}`}
+            title={`${FIELD_LABELS[field]}：${FIELD_HINTS[field]}\n点击切换显示状态`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle(field, !on);
+            }}
+          >
+            {node}
+            <span className="pz-tag">
+              {on ? "✓" : "✕"} {FIELD_LABELS[field]}
+            </span>
+          </span>
+        );
+      },
+    [fields, onToggle],
   );
 
   return (
-    <div className="pz-scope flex flex-col rounded-lg overflow-hidden" style={{ border: "1px solid var(--line)" }}>
-      {/* banner strip */}
-      <div className="flex items-center gap-2 px-2 py-1.5" style={{ background: "linear-gradient(135deg, #fb729955, #4ac7ff44)" }}>
-        {z("banner", <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "var(--surface)", color: "var(--text-2)" }}>Banner</span>)}
-        <span className="flex-1" />
-        {z("decoration", <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "var(--surface)", color: "var(--text-2)" }}>装扮编号</span>)}
-      </div>
-
-      {/* avatar row */}
-      <div className="flex items-center gap-2 px-2 pt-2">
-        {z("avatar", <span className="block rounded-full" style={{ width: 30, height: 30, background: "var(--surface-2)", border: "2px solid var(--bg)" }} />)}
-        {z("pendant", <span className="block rounded-full" style={{ width: 30, height: 30, border: "2px dashed #fb7299" }} />)}
-        {z("official", <span className="block rounded-full text-center" style={{ width: 16, height: 16, background: "#FFC62E", color: "#fff", fontSize: 10, lineHeight: "16px" }}>⚡</span>)}
-        {z("level", <span className="text-[9px] px-1 py-0.5 rounded" style={{ background: "#F04C49", color: "#fff" }}>LV6</span>)}
-      </div>
-
-      {/* identity */}
-      <div className="flex flex-col gap-1 px-2 pt-2">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {z("name", <span className="text-[11.5px] font-semibold px-1 rounded" style={{ background: "var(--surface)", color: "var(--text)" }}>用户名 / 备注</span>)}
-          {z("sex", <span className="rounded-full" style={{ width: 13, height: 13, background: "#FB7299", display: "inline-block" }} />)}
-          {z("vip", <span className="text-[9px] px-1 py-0.5 rounded" style={{ background: "#FB7299", color: "#fff" }}>年度大会员</span>)}
-        </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {z("uid", <span className="text-[10px] px-1 rounded" style={{ background: "var(--surface)", color: "var(--text-2)" }}>UID 17409970</span>)}
-          {z("fansMedal", <span className="text-[9px] px-1 py-0.5 rounded" style={{ background: "linear-gradient(90deg,#B8C7D0,#A2A7B0)", color: "#fff" }}>巡天者 21</span>)}
-          {z("nameplate", <span className="text-[9px] px-1 py-0.5 rounded" style={{ background: "var(--surface-2)", color: "var(--text-2)" }}>有爱大佬</span>)}
-        </div>
-        {z("sign", <span className="block text-[10px] truncate" style={{ color: "var(--text-2)" }}>这里显示 UP 主简介</span>)}
-      </div>
-
-      {/* stats */}
-      <div className="grid grid-cols-5 gap-1 p-2 mt-2" style={{ background: "var(--surface-2)" }}>
-        {z("following", <span className="pz-stat">关注<b>2676</b></span>)}
-        {z("follower", <span className="pz-stat">粉丝<b>1.1万</b></span>)}
-        {z("likes", <span className="pz-stat">获赞<b>3353万</b></span>)}
-        {z("totalViews", <span className="pz-stat">播放<b>2.2亿</b></span>)}
-        {z("videoCount", <span className="pz-stat">投稿<b>98</b></span>)}
-      </div>
-
-      {/* growth */}
-      <div className="grid grid-cols-3 gap-1 px-2 py-1.5" style={{ background: "var(--surface-2)", borderTop: "1px solid var(--line)" }}>
-        {z("growthDay", <span className="pz-stat">日增长<b>+20</b></span>)}
-        {z("growthWeek", <span className="pz-stat">周增长<b>+120</b></span>)}
-        {z("growthMonth", <span className="pz-stat">月增长<b>+800</b></span>)}
-      </div>
+    <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--line)" }}>
+      <ProfileCardView
+        mid={previewMid}
+        profile={profile}
+        stats={stats}
+        decoration={decoration}
+        fields={fields}
+        growth={growth}
+        assets={{ banner, face, pendant, decoration: decorationImg }}
+        preview
+        zone={zone}
+        period={period}
+        onOpen={() => {}}
+      />
     </div>
   );
 }

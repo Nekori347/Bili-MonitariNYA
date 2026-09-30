@@ -27,6 +27,22 @@ import {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+/**
+ * The feature set the dynamic feed must be asked for so `module_author` comes
+ * back complete — `decorationCard` is what carries the author's 装扮卡片.
+ */
+const DYNAMIC_FEATURES = [
+  "itemOpusStyle",
+  "opusBigCover",
+  "onlyfansVote",
+  "endFooterHidden",
+  "decorationCard",
+  "onlyfansAssetsV2",
+  "ugcDelete",
+  "onlyfansQaCard",
+  "commentsNewVersion",
+].join(",");
+
 /** Map raw Bilibili API codes to our error taxonomy. */
 function toBiliError(status: number, body: string): BiliError | null {
   if (status === 403 || status === 412 || status === 429) {
@@ -316,6 +332,8 @@ export const BilibiliAdapter = {
           host_mid: mid,
           timezone_offset: -480,
           web_location: "333.1387",
+          // Without `decorationCard` the response omits module_author's card.
+          features: DYNAMIC_FEATURES,
         });
         const res = await biliFetch(ENDPOINTS.dynamicSpace, { params });
         const raw = JSON.parse(res.body);
@@ -385,12 +403,13 @@ function isDefaultBanner(url: string): boolean {
 }
 
 /**
- * Pick the most "real" banner we can get. Prefers the card endpoint's custom
- * space banner, but skips Bilibili's stock artwork when a better candidate
- * exists (anonymous requests only ever see the stock image for some UPs).
+ * Pick the most "real" banner we can get, in the order the space page itself
+ * uses: `/x/space/wbi/acc/info → data.top_photo` first, then the `top_photo_v2`
+ * preview, and only then the card endpoint's `space.l_img` / `s_img`. Bilibili's
+ * stock artwork is skipped whenever a custom candidate exists.
  */
 function pickBanner(c: BannerCandidates): string | undefined {
-  const list = [c.lImg, c.sImg, c.l200h, c.topPhoto].filter((u): u is string => !!u);
+  const list = [c.topPhoto, c.l200h, c.lImg, c.sImg].filter((u): u is string => !!u);
   if (list.length === 0) return undefined;
   return list.find((u) => !isDefaultBanner(u)) ?? list[0];
 }

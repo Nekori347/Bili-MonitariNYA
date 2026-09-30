@@ -1,8 +1,13 @@
 import { getDb } from "./db";
 import type { VideoSummary } from "../bilibili/types";
 
+/** A cached list entry, including the cid needed to query online viewers. */
+export interface CachedVideo extends VideoSummary {
+  cid: number;
+}
+
 /** Load the last-known video list for a UP (instant display on user switch). */
-export async function getCachedVideos(mid: number, limit: number): Promise<VideoSummary[]> {
+export async function getCachedVideos(mid: number, limit: number): Promise<CachedVideo[]> {
   const db = await getDb();
   const rows: any[] = await db.select(
     "SELECT * FROM videos WHERE mid = $1 ORDER BY pubdate DESC LIMIT $2",
@@ -23,6 +28,7 @@ export async function getCachedVideos(mid: number, limit: number): Promise<Video
       view: detail.view ?? null,
       like: detail.like ?? null,
       coin: detail.coin ?? null,
+      cid: r.cid != null ? Number(r.cid) : 0,
     };
   });
 }

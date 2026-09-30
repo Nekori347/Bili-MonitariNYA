@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useUIStore } from "../../store/uiStore";
 import { useSettingsStore } from "../../store/settingsStore";
-import { useSubscriptions } from "../../queries/subscriptions";
+import { useSubscriptions, useRemarkEditor } from "../../queries/subscriptions";
 import { setAlwaysOnTop } from "../../utils/window";
-import { setRemark } from "../../services/database/subscriptions";
 import {
+  DEFAULT_OPACITY,
   DEFAULT_SETTINGS,
   DEFAULT_VIDEO_FIELD_ORDER,
+  FIELD_LABELS,
+  HIGHLIGHT_OPTIONS,
   type FieldVisibility,
   type GlobalSettings,
+  type HighlightField,
   type PerUserSettings,
   type VideoFieldKey,
 } from "../../types/settings";
@@ -17,30 +21,63 @@ import { AccountSection } from "./AccountSection";
 import { UpdateSection } from "./UpdateSection";
 import { PreviewCard } from "./PreviewCard";
 import { VideoPreview } from "./VideoPreview";
-import { ChevronDown, XIcon } from "../../components/ui/Icons";
+import {
+  APP_AUTHOR,
+  APP_DISPLAY_NAME,
+  AUTHOR_BILIBILI_URL,
+  GITHUB_REPO_URL,
+  LICENSE_NAME,
+} from "../../config/app";
+import { ChevronDown, ExternalLink, Undo, XIcon } from "../../components/ui/Icons";
 
 type Category = "appearance" | "subs" | "card" | "video" | "data" | "system";
+type Mode = "global" | "perUser";
 
-const CATEGORIES: { id: Category; label: string; tabs: string[] }[] = [
+/**
+ * 全局设置 only edits the shared defaults; 某个 UP 的设置 only edits that UP's
+ * overrides. The two never mix, so neither page offers a mode switch.
+ */
+const GLOBAL_CATEGORIES: { id: Category; label: string; tabs: string[] }[] = [
   { id: "appearance", label: "外观", tabs: ["主题与窗口", "布局"] },
   { id: "subs", label: "订阅", tabs: ["订阅列表", "默认值"] },
-  { id: "card", label: "用户名片", tabs: ["显示项", "当前 UP 覆盖"] },
-  { id: "video", label: "视频", tabs: ["字段与顺序", "当前 UP 覆盖"] },
+  { id: "card", label: "用户名片", tabs: ["显示项"] },
+  { id: "video", label: "视频", tabs: ["字段与顺序"] },
   { id: "data", label: "数据", tabs: ["刷新与增长", "缓存"] },
   { id: "system", label: "系统", tabs: ["B 站账号", "自动更新", "关于"] },
 ];
 
+const PER_USER_CATEGORIES: { id: Category; label: string; tabs: string[] }[] = [
+  { id: "card", label: "用户名片", tabs: ["显示项"] },
+  { id: "video", label: "视频", tabs: ["字段与顺序"] },
+  { id: "data", label: "数据", tabs: ["投稿与刷新"] },
+];
+
 export function SettingsPanel() {
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
+  const mode = useUIStore((s) => s.settingsTab) as Mode;
+  const selectedMid = useUIStore((s) => s.selectedMid);
+  const { data: subs } = useSubscriptions();
   const [category, setCategory] = useState<Category>("appearance");
   const [tabIndex, setTabIndex] = useState(0);
   const original = useRef<{ global: GlobalSettings; perUser: Record<number, PerUserSettings> } | null>(null);
+
+  const categories = mode === "global" ? GLOBAL_CATEGORIES : PER_USER_CATEGORIES;
+  const target = subs?.find((s) => s.mid === selectedMid);
+  const targetName = target ? (target.remark || target.name || `UID ${target.mid}`) : null;
 
   // Snapshot on open so the live preview can be rolled back by 取消; 保存 keeps it.
   useEffect(() => {
     const s = useSettingsStore.getState();
     original.current = { global: s.global, perUser: s.perUser };
   }, []);
+
+  // 外观 / 订阅 / 系统 don't exist in the per-UP page, so land on a valid one.
+  useEffect(() => {
+    if (!categories.some((c) => c.id === category)) {
+      setCategory(categories[0].id);
+      setTabIndex(0);
+    }
+  }, [categories, category]);
 
   const cancel = () => {
     const snap = original.current;
@@ -54,7 +91,7 @@ export function SettingsPanel() {
     setSettingsOpen(false);
   };
 
-  const cat = CATEGORIES.find((c) => c.id === category)!;
+  const cat = categories.find((c) => c.id === category) ?? categories[0];
   const tab = cat.tabs[Math.min(tabIndex, cat.tabs.length - 1)];
 
   return (
@@ -69,14 +106,21 @@ export function SettingsPanel() {
       >
         {/* header */}
         <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: "var(--line)" }}>
-          <span className="font-semibold" style={{ color: "var(--text)" }}>设置</span>
+          <div className="flex items-baseline gap-2 min-w-0">
+            <span className="font-semibold" style={{ color: "var(--text)" }}>
+              {mode === "global" ? "设置" : "这个 UP 的设置"}
+            </span>
+            {mode === "perUser" && targetName && (
+              <span className="text-[12px] truncate" style={{ color: "var(--accent)" }}>{targetName}</span>
+            )}
+          </div>
           <button className="titlebar-btn" onClick={cancel}><XIcon size={14} /></button>
         </div>
 
         <div className="flex-1 min-h-0 flex">
           {/* level 1: categories */}
           <nav className="w-[132px] flex-none border-r py-2 flex flex-col gap-0.5" style={{ borderColor: "var(--line)" }}>
-            {CATEGORIES.map((c) => (
+            {categories.map((c) => (
               <button
                 key={c.id}
                 className="text-left px-4 py-2 text-[13px] rounded-md mx-1.5 transition-colors"
@@ -113,19 +157,29 @@ export function SettingsPanel() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-3">
-              <CategoryBody category={category} tab={tab} />
+              {mode === "global" ? (
+                <GlobalBody category={category} tab={tab} />
+              ) : target == null ? (
+                <div className="text-[12px]" style={{ color: "var(--text-3)" }}>请先在侧栏选择一个 UP 主</div>
+              ) : (
+                <PerUserBody mid={target.mid} category={category} />
+              )}
             </div>
           </div>
         </div>
 
         {/* fixed footer: destructive on the left */}
         <div className="flex items-center justify-between px-5 py-3 border-t" style={{ borderColor: "var(--line)" }}>
-          <button
-            className="btn text-xs"
-            onClick={() => useSettingsStore.getState().updateGlobal({ ...DEFAULT_SETTINGS })}
-          >
-            恢复默认
-          </button>
+          {mode === "global" ? (
+            <button
+              className="btn text-xs"
+              onClick={() => useSettingsStore.getState().updateGlobal({ ...DEFAULT_SETTINGS })}
+            >
+              恢复默认
+            </button>
+          ) : (
+            <span />
+          )}
           <div className="flex items-center gap-2">
             <button className="btn text-xs" onClick={cancel}>取消</button>
             <button className="btn btn-primary text-xs" onClick={() => setSettingsOpen(false)}>保存并退出</button>
@@ -136,11 +190,12 @@ export function SettingsPanel() {
   );
 }
 
-/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * 全局设置
+ * ------------------------------------------------------------------ */
 
-function CategoryBody({ category, tab }: { category: Category; tab: string }) {
+function GlobalBody({ category, tab }: { category: Category; tab: string }) {
   const global = useSettingsStore((s) => s.global);
-  const perUserAll = useSettingsStore((s) => s.perUser);
   const updateGlobal = useSettingsStore((s) => s.updateGlobal);
   const updateField = useSettingsStore((s) => s.updateField);
   const selectedMid = useUIStore((s) => s.selectedMid);
@@ -159,8 +214,15 @@ function CategoryBody({ category, tab }: { category: Category; tab: string }) {
               </select>
             </Row>
             <Row label={`界面透明度（${global.opacity}%）`}>
+              <button
+                className="reset-btn"
+                title="恢复默认透明度"
+                onClick={() => updateGlobal({ opacity: DEFAULT_OPACITY })}
+              >
+                <Undo size={13} />
+              </button>
               <input type="range" min={60} max={100} value={global.opacity}
-                onChange={(e) => updateGlobal({ opacity: Number(e.target.value) })} className="w-48" />
+                onChange={(e) => updateGlobal({ opacity: Number(e.target.value) })} className="w-44" />
             </Row>
           </Section>
           <Section title="窗口" open>
@@ -180,7 +242,7 @@ function CategoryBody({ category, tab }: { category: Category; tab: string }) {
           <Section title="侧栏" open>
             <Row label={`侧栏宽度（${global.sidebarWidth}px）`}>
               <input type="range" min={140} max={260} value={global.sidebarWidth}
-                onChange={(e) => updateGlobal({ sidebarWidth: Number(e.target.value) })} className="w-48" />
+                onChange={(e) => updateGlobal({ sidebarWidth: Number(e.target.value) })} className="w-44" />
             </Row>
             <div className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>
               也可以直接拖动侧栏右侧的分隔线调整宽度。
@@ -200,19 +262,13 @@ function CategoryBody({ category, tab }: { category: Category; tab: string }) {
     case "subs":
       return tab === "订阅列表" ? (
         <Sections>
-          <Section title="已订阅（拖动侧栏头像可排序）" open>
+          <Section title="已订阅的 UP 主" open>
+            <div className="text-[11px] mb-2" style={{ color: "var(--text-3)" }}>
+              备注会立即显示在侧栏和名片上；拖动侧栏头像可以调整顺序。
+            </div>
             <div className="flex flex-col gap-1">
               {(subs ?? []).map((s) => (
-                <div key={s.mid} className="flex items-center gap-2">
-                  <span className="w-32 shrink-0 truncate text-[12px]" style={{ color: "var(--text)" }}>{s.name || `UID ${s.mid}`}</span>
-                  <input
-                    className="flex-1 min-w-0 text-[12px]"
-                    placeholder="备注名（留空则显示原用户名）"
-                    defaultValue={s.remark ?? ""}
-                    onBlur={(e) => void setRemark(s.mid, e.target.value).then(() => void 0)}
-                    onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                  />
-                </div>
+                <RemarkRow key={s.mid} mid={s.mid} name={s.name} remark={s.remark ?? ""} />
               ))}
               {(subs ?? []).length === 0 && <div className="text-[12px]" style={{ color: "var(--text-3)" }}>还没有订阅</div>}
             </div>
@@ -231,74 +287,41 @@ function CategoryBody({ category, tab }: { category: Category; tab: string }) {
                 }}
               />
             </Row>
+            <div className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>
+              个别 UP 主可以在它的独立设置里单独调整。
+            </div>
           </Section>
         </Sections>
       );
 
-    case "card": {
-      const targetMid = selectedMid;
-      const perUser = targetMid != null ? perUserAll[targetMid]?.fields : undefined;
-      const effective = tab === "当前 UP 覆盖" && perUser ? { ...global.fields, ...perUser } : global.fields;
+    case "card":
       return (
         <Sections>
-          <Section title={tab === "当前 UP 覆盖" ? "点击预览里的元素开关字段（仅覆盖当前 UP）" : "点击预览里的元素开关字段"} open>
-            {tab === "当前 UP 覆盖" && targetMid == null && (
-              <div className="text-[12px] mb-2" style={{ color: "var(--text-3)" }}>请先在侧栏选择一个 UP 主</div>
-            )}
-            <PreviewCard
-              fields={effective}
-              onToggle={(k, v) => {
-                if (tab === "当前 UP 覆盖" && targetMid != null) {
-                  const store = useSettingsStore.getState();
-                  store.setPerUser(targetMid, { ...store.perUser[targetMid], fields: { ...(store.perUser[targetMid]?.fields ?? {}), [k]: v } });
-                } else {
-                  updateField(k, v);
-                }
-              }}
-            />
-            {tab === "当前 UP 覆盖" && targetMid != null && (
-              <>
-                <RefreshUpSection mid={targetMid} />
-                <button
-                  className="btn text-xs mt-3"
-                  onClick={() => useSettingsStore.getState().clearPerUser(targetMid)}
-                >
-                  清除该 UP 的全部覆盖
-                </button>
-              </>
-            )}
+          <Section title="名片上显示的内容" open>
+            <div className="text-[12px] mb-2" style={{ color: "var(--text-2)" }}>
+              点击预览中的项目，可以选择它们是否显示在名片中。
+            </div>
+            {/* Global defaults only — an individual UP's overrides never leak in. */}
+            <PreviewCard mid={selectedMid} fields={global.fields} onToggle={updateField} />
           </Section>
         </Sections>
       );
-    }
 
-    case "video": {
-      const targetMid = selectedMid;
-      const perUser = targetMid != null ? perUserAll[targetMid]?.fields : undefined;
-      const effective = tab === "当前 UP 覆盖" && perUser ? { ...global.fields, ...perUser } : global.fields;
-      const applyField = (k: keyof FieldVisibility, v: boolean) => {
-        if (tab === "当前 UP 覆盖" && targetMid != null) {
-          const store = useSettingsStore.getState();
-          store.setPerUser(targetMid, { ...store.perUser[targetMid], fields: { ...(store.perUser[targetMid]?.fields ?? {}), [k]: v } });
-        } else {
-          updateField(k, v);
-        }
-      };
+    case "video":
       return (
         <Sections>
-          <Section title="视频行预览" open>
-            {tab === "当前 UP 覆盖" && targetMid == null && (
-              <div className="text-[12px] mb-2" style={{ color: "var(--text-3)" }}>请先在侧栏选择一个 UP 主</div>
-            )}
+          <Section title="每条投稿显示的字段" open>
+            <div className="text-[12px] mb-2" style={{ color: "var(--text-2)" }}>
+              点击预览中的项目可以显示或隐藏对应字段。
+            </div>
             <VideoPreview
-              fields={effective}
-              onToggle={applyField}
+              fields={global.fields}
+              onToggle={updateField}
               order={global.videoFieldOrder}
               onOrder={(next: VideoFieldKey[]) => updateGlobal({ videoFieldOrder: next })}
               pinnedRight={global.videoPinnedRight}
               onPinnedRight={(k) => updateGlobal({ videoPinnedRight: k })}
             />
-            {tab === "当前 UP 覆盖" && targetMid != null && <RefreshUpSection mid={targetMid} />}
             <button
               className="btn text-xs mt-3"
               onClick={() => updateGlobal({ videoFieldOrder: [...DEFAULT_VIDEO_FIELD_ORDER], videoPinnedRight: "pubdate" })}
@@ -306,50 +329,78 @@ function CategoryBody({ category, tab }: { category: Category; tab: string }) {
               恢复默认顺序
             </button>
           </Section>
+
+          <Section title="固定高亮字段" open>
+            <div className="text-[12px] mb-2" style={{ color: "var(--text-2)" }}>
+              选中的字段在每条投稿里会一直用 B站蓝显示，方便一眼扫到。排序字段始终使用粉色。
+            </div>
+            <Row label="高亮字段">
+              <select
+                value={global.highlightField}
+                onChange={(e) => updateGlobal({ highlightField: e.target.value as HighlightField })}
+              >
+                {HIGHLIGHT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </Row>
+            <div className="flex items-center gap-3 mt-2 text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <span className="legend-dot" style={{ background: "#fb7299" }} />排序字段
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="legend-dot" style={{ background: "#00aeec" }} />固定高亮
+              </span>
+            </div>
+          </Section>
         </Sections>
       );
-    }
 
     case "data":
       return tab === "刷新与增长" ? (
         <Sections>
-          <Section title="增长周期" open>
-            <Row label="卡片上显示的增长">
+          <Section title="增长数据" open>
+            <Row label="名片上显示的增长">
               <select value={global.growthPeriod} onChange={(e) => updateGlobal({ growthPeriod: e.target.value as GlobalSettings["growthPeriod"] })}>
                 <option value="day">日增长</option>
                 <option value="week">周增长</option>
                 <option value="month">月增长</option>
               </select>
             </Row>
-            <Row label="增长胶囊显示（名片）">
+            <Row label="显示增长变化">
               <Switch on={global.fields.growthDay} onToggle={(v) => { updateField("growthDay", v); updateField("growthWeek", v); updateField("growthMonth", v); }} />
             </Row>
+            <div className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>
+              增长数据由本程序自己记录的历史快照计算，历史不足时会留空。
+            </div>
           </Section>
-          <Section title="刷新节奏" open>
+          <Section title="数据更新" open>
             <div className="text-[12px] leading-relaxed" style={{ color: "var(--text-2)" }}>
-              前台选中 UP：资料 15 分钟、视频统计 5 分钟、在线人数 60 秒。<br />
-              后台 UP：资料 30 分钟、视频统计 15 分钟，在线人数不轮询。<br />
-              窗口隐藏到托盘后自动降低频率。
+              正在查看的 UP 主更新最勤：资料约 15 分钟一次，播放 / 点赞 / 投币约 5 分钟一次，
+              在线人数约 1 分钟一次。<br />
+              其它 UP 主在后台逐个更新，不会同时发出大量请求。<br />
+              窗口收进托盘后会自动放慢更新，并暂停更新在线人数。
             </div>
           </Section>
         </Sections>
       ) : (
         <Sections>
-          <Section title="缓存" open>
+          <Section title="本机缓存" open>
             <div className="text-[12px] mb-2" style={{ color: "var(--text-2)" }}>
-              头像 / Banner / 挂件 / 装扮图都缓存在本机，缓存失败时不会覆盖已成功的文件。
+              头像、Banner、头像框和装扮图都会保存在本机，重新打开程序时立刻就能看到。
             </div>
             <div className="flex flex-col gap-1">
               {(subs ?? []).map((s) => (
-                <Row key={s.mid} label={s.name || `UID ${s.mid}`}>
+                <Row key={s.mid} label={s.remark || s.name || `UID ${s.mid}`}>
                   <button
                     className="btn text-[11px] px-2 py-1"
                     onClick={() => void import("@tauri-apps/api/core").then(({ invoke }) => invoke("clear_user_cache", { mid: String(s.mid) }))}
                   >
-                    清除该 UP 缓存
+                    清除这个 UP 的缓存
                   </button>
                 </Row>
               ))}
+              {(subs ?? []).length === 0 && <div className="text-[12px]" style={{ color: "var(--text-3)" }}>还没有订阅</div>}
             </div>
           </Section>
         </Sections>
@@ -365,31 +416,38 @@ function CategoryBody({ category, tab }: { category: Category; tab: string }) {
           <Section title="更新" open><UpdateSection /></Section>
         </Sections>
       ) : (
-        <Sections>
-          <Section title="关于" open>
-            <div className="text-[12px] leading-relaxed" style={{ color: "var(--text-2)" }}>
-              BiliUPMonitor · 桌面版 B 站 UP 主数据监控<br />
-              用户数据（订阅 / 备注 / 设置 / 历史增长 / 登录凭据 / 缓存）全部保存在
-              <code className="mx-1">%APPDATA%\com.biliupmonitor.app</code>
-              与本地缓存目录，程序更新不会影响这些数据。<br />
-              数据库结构升级全部走 migration（v1 → v2 → …），不会重建数据库。
-            </div>
-          </Section>
-        </Sections>
+        <AboutSection />
       );
   }
 }
 
-/**
- * Refresh everything for one UP (profile, banner/avatar/pendant, level, VIP,
- * certification, fans medal, decoration, following/follower/likes/views/video
- * count, recent posts and per-video stats) while the cached view stays on
- * screen. Shares the main progress line with the video-list refresh.
- */
-function RefreshUpSection({ mid }: { mid: number }) {
+/* ------------------------------------------------------------------ *
+ * 单个 UP 的覆盖设置
+ * ------------------------------------------------------------------ */
+
+function PerUserBody({ mid, category }: { mid: number; category: Category }) {
+  const global = useSettingsStore((s) => s.global);
+  const perUser = useSettingsStore((s) => s.perUser[mid]);
+  const setPerUser = useSettingsStore((s) => s.setPerUser);
+  const clearPerUser = useSettingsStore((s) => s.clearPerUser);
+  const updateGlobal = useSettingsStore((s) => s.updateGlobal);
   const qc = useQueryClient();
   const setRefreshing = useUIStore((s) => s.setRefreshing);
   const [done, setDone] = useState(false);
+
+  const overrides = (perUser?.fields ?? {}) as Partial<FieldVisibility>;
+  const overriddenKeys = Object.keys(overrides) as (keyof FieldVisibility)[];
+
+  const effective = { ...global.fields, ...overrides };
+
+  const applyField = (k: keyof FieldVisibility, v: boolean) => {
+    setPerUser(mid, { ...perUser, fields: { ...overrides, [k]: v } });
+  };
+  const releaseField = (k: keyof FieldVisibility) => {
+    const next = { ...overrides };
+    delete next[k];
+    setPerUser(mid, { ...perUser, fields: next });
+  };
 
   const refreshAll = async () => {
     setRefreshing(true);
@@ -403,16 +461,186 @@ function RefreshUpSection({ mid }: { mid: number }) {
       qc.invalidateQueries({ queryKey: ["online"] }),
       qc.invalidateQueries({ queryKey: ["statsGrowth", mid] }),
     ]);
-    window.setTimeout(() => setRefreshing(false), 600);
     setDone(true);
   };
 
+  const InheritNote = ({ children }: { children: React.ReactNode }) => (
+    <div className="text-[11px] mb-2" style={{ color: "var(--text-3)" }}>{children}</div>
+  );
+
+  const OverrideList = () =>
+    overriddenKeys.length === 0 ? (
+      <InheritNote>这个 UP 主目前完全跟随全局设置。</InheritNote>
+    ) : (
+      <div className="mt-3">
+        <div className="text-[11px] mb-1.5" style={{ color: "var(--text-3)" }}>
+          已单独设置的字段（点击 × 可恢复跟随全局）
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {overriddenKeys.map((k) => (
+            <button key={k} className="override-chip" onClick={() => releaseField(k)} title="恢复跟随全局">
+              {FIELD_LABELS[k]}<XIcon size={10} />
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+
+  if (category === "card") {
+    return (
+      <Sections>
+        <Section title="这个 UP 的名片显示项" open>
+          <InheritNote>没有单独设置的项目会跟随全局默认值。</InheritNote>
+          <PreviewCard mid={mid} fields={effective} onToggle={applyField} />
+          <OverrideList />
+          <button
+            className="btn text-xs mt-3"
+            onClick={() => clearPerUser(mid)}
+          >
+            恢复跟随全局
+          </button>
+        </Section>
+      </Sections>
+    );
+  }
+
+  if (category === "video") {
+    return (
+      <Sections>
+        <Section title="这个 UP 的投稿字段" open>
+          <InheritNote>字段顺序和“固定到最右”属于全局设置，这里只覆盖显示哪些字段。</InheritNote>
+          <VideoPreview
+            fields={effective}
+            onToggle={applyField}
+            order={global.videoFieldOrder}
+            onOrder={(next: VideoFieldKey[]) => updateGlobal({ videoFieldOrder: next })}
+            pinnedRight={global.videoPinnedRight}
+            onPinnedRight={(k) => updateGlobal({ videoPinnedRight: k })}
+          />
+          <OverrideList />
+          <button className="btn text-xs mt-3" onClick={() => clearPerUser(mid)}>
+            恢复跟随全局
+          </button>
+        </Section>
+      </Sections>
+    );
+  }
+
+  if (category === "data") {
+    const inherited = perUser?.videoLimit ?? global.videoLimit;
+    const overriddenLimit = perUser?.videoLimit != null;
+    return (
+      <Sections>
+        <Section title="投稿条数" open>
+          <Row label="显示最近几条投稿（5–100）">
+            <input
+              type="number" min={5} max={100} className="w-24"
+              value={inherited}
+              onChange={(e) => {
+                const n = Math.round(Number(e.target.value));
+                if (Number.isFinite(n)) setPerUser(mid, { ...perUser, videoLimit: Math.min(100, Math.max(5, n)) });
+              }}
+            />
+          </Row>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>
+              {overriddenLimit ? "已单独设置" : `跟随全局（${global.videoLimit} 条）`}
+            </span>
+            {overriddenLimit && (
+              <button
+                className="btn text-[11px] px-2 py-0.5"
+                onClick={() => setPerUser(mid, { ...perUser, videoLimit: undefined })}
+              >
+                恢复跟随全局
+              </button>
+            )}
+          </div>
+        </Section>
+
+        <Section title="刷新" open>
+          <div className="text-[12px] leading-relaxed mb-2" style={{ color: "var(--text-2)" }}>
+            立即重新获取这个 UP 主的资料、统计数据、粉丝牌、装扮和最近投稿。当前显示的数据会保留到新数据返回。
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="btn text-xs" onClick={() => void refreshAll()}>刷新这个 UP 的全部数据</button>
+            {done && <span className="text-[11px]" style={{ color: "#22a06b" }}>已开始刷新</span>}
+          </div>
+        </Section>
+      </Sections>
+    );
+  }
+
+  return null;
+}
+
+/* ------------------------------------------------------------------ *
+ * 关于
+ * ------------------------------------------------------------------ */
+
+function AboutSection() {
+  const [version, setVersion] = useState("");
+  useEffect(() => {
+    void import("@tauri-apps/api/app")
+      .then(({ getVersion }) => getVersion())
+      .then(setVersion)
+      .catch(() => setVersion(""));
+  }, []);
+
   return (
-    <div className="flex items-center gap-2 mt-3">
-      <button className="btn text-xs" onClick={() => void refreshAll()}>
-        刷新当前 UP 全部数据
-      </button>
-      {done && <span className="text-[11px]" style={{ color: "#22a06b" }}>已发起刷新，缓存会继续显示</span>}
+    <Sections>
+      <Section title="关于" open>
+        <div className="flex flex-col gap-1.5 text-[12.5px]" style={{ color: "var(--text-2)" }}>
+          <div className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>
+            {APP_DISPLAY_NAME}
+          </div>
+          <div>版本 {version || "—"}</div>
+          <div className="flex items-center gap-2">
+            <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>作者</span>
+            <button className="link-btn" onClick={() => void openUrl(AUTHOR_BILIBILI_URL)}>{APP_AUTHOR}</button>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>Bilibili</span>
+            <button className="link-btn" onClick={() => void openUrl(AUTHOR_BILIBILI_URL)}>{APP_AUTHOR}</button>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>GitHub</span>
+            <button className="link-btn" onClick={() => void openUrl(GITHUB_REPO_URL)}>
+              项目仓库 <ExternalLink size={11} />
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>许可证</span>
+            <span>{LICENSE_NAME}</span>
+          </div>
+        </div>
+      </Section>
+    </Sections>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * 备注行（立即生效）
+ * ------------------------------------------------------------------ */
+
+function RemarkRow({ mid, name, remark }: { mid: number; name: string; remark: string }) {
+  const editor = useRemarkEditor(mid);
+  const [value, setValue] = useState(remark);
+  useEffect(() => setValue(remark), [remark]);
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-32 shrink-0 truncate text-[12px]" style={{ color: "var(--text)" }}>{name || `UID ${mid}`}</span>
+      <input
+        className="flex-1 min-w-0 text-[12px]"
+        placeholder="备注名（留空则显示原用户名）"
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
+          editor.set(e.target.value);
+        }}
+        onBlur={editor.flush}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+      />
     </div>
   );
 }

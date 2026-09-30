@@ -1,40 +1,46 @@
-import { useQueries } from "@tanstack/react-query";
-import { computeGrowth, type Growth } from "../../utils/growth";
+import { useEffect, useMemo } from "react";
+import { computeVideoGrowthMap, EMPTY_VIDEO_GROWTH, type VideoGrowth, type VideoGrowthMap } from "../../utils/growth";
+import { useDashboardStore, useSnapshot } from "../../store/dashboardStore";
 
-export interface VideoGrowth {
-  view: Growth;
-  like: Growth;
-  coin: Growth;
-}
-
-const EMPTY: Growth = { day: null, week: null, month: null };
+export type { VideoGrowth };
 
 /**
- * Computes day/week/month growth for view / like / coin per video.
- * Keyed on bvid + current values so it recomputes when fresh detail data lands.
+ * Day/week/month growth for view / like / coin on every row. One SQLite query
+ * covers the whole list, and the result is kept in the per-UP snapshot so a
+ * subscription switch re-uses it instead of recomputing from scratch.
  */
 export function useGrowthMap(
+  mid: number,
   items: { bvid: string; view: number | null; like: number | null; coin: number | null }[],
-): Record<string, VideoGrowth> {
-  const queries = useQueries({
-    queries: items.map((v) => ({
-      queryKey: ["growth", v.bvid, v.view ?? -1, v.like ?? -1, v.coin ?? -1] as const,
-      queryFn: async (): Promise<VideoGrowth> => {
-        const [view, like, coin] = await Promise.all([
-          computeGrowth(v.bvid, v.view, "viewCount"),
-          computeGrowth(v.bvid, v.like, "likeCount"),
-          computeGrowth(v.bvid, v.coin, "coinCount"),
-        ]);
-        return { view, like, coin };
-      },
-      staleTime: 5 * 60 * 1000,
-      enabled: v.view != null,
-    })),
-  });
+): VideoGrowthMap {
+  const snapshot = useSnapshot(mid);
 
-  const map: Record<string, VideoGrowth> = {};
-  items.forEach((v, i) => {
-    map[v.bvid] = queries[i]?.data ?? { view: EMPTY, like: EMPTY, coin: EMPTY };
-  });
-  return map;
+  // Recompute only when the counters themselves change, not on every render.
+  const signature = useMemo(
+    () => items.map((v) => `${v.bvid}:${v.view ?? -1}:${v.like ?? -1}:${v.coin ?? -1}`).join(","),
+    [items],
+  );
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    let on = true;
+    void computeVideoGrowthMap(mid, items)
+      .then((map) => {
+        if (on) useDashboardStore.getState().patch(mid, { videoGrowth: map });
+      })
+      .catch(() => {});
+    return () => {
+      on = false;
+    };
+    // `items` is fully described by `signature`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mid, signature]);
+
+  return snapshot?.videoGrowth ?? EMPTY_MAP;
+}
+
+const EMPTY_MAP: VideoGrowthMap = {};
+
+export function growthFor(map: VideoGrowthMap, bvid: string): VideoGrowth {
+  return map[bvid] ?? EMPTY_VIDEO_GROWTH;
 }

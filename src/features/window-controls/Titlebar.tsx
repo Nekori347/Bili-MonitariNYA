@@ -41,7 +41,7 @@ export function Titlebar() {
     <header className="titlebar">
       <div className="drag-region" data-tauri-drag-region>
         <div className="flex items-center gap-1.5 no-drag" data-tauri-drag-region>
-          <img src="/icons/icon.png" alt="" width={15} height={15} style={{ borderRadius: 3 }} />
+          <img src="/icons/icon.png" alt="Bili Monitor" width={15} height={15} className="app-logo" />
           <span className="font-semibold text-[12px]" style={{ color: "var(--text)" }}>Bili Monitor</span>
           <button className="titlebar-btn" style={{ width: 22, height: 22 }} title={themeTitle} onClick={cycleTheme}>
             {themeIcon}

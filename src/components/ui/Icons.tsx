@@ -183,3 +183,10 @@ export const Monitor = (p: P) => (
     <path d="M8 21h8M12 17v4" />
   </Svg>
 );
+/** Reset-to-default: a counter-clockwise arrow curling back on itself. */
+export const Undo = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 8h11a5 5 0 0 1 0 10H8" />
+    <path d="m7 4-4 4 4 4" />
+  </Svg>
+);

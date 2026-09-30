@@ -1,13 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BilibiliAdapter } from "../services/bilibili/adapter";
 import type { DynamicDecoration, UserProfile, UserStats } from "../services/bilibili/types";
-import { getUserCache, setUserCacheProfile, setUserCacheStats } from "../services/database/usersCache";
+import {
+  getUserCache,
+  setUserCacheDecoration,
+  setUserCacheProfile,
+  setUserCacheStats,
+} from "../services/database/usersCache";
 import { insertStatsSnapshot } from "../services/database/statsSnapshots";
 import { isDefaultBannerUrl } from "../services/bilibili/adapter";
-import { useDelayedReady } from "../utils/useDelayedReady";
 import { profileInterval } from "../utils/refresh";
+import { computeStatsGrowth } from "../utils/growth";
 import { useUIStore } from "../store/uiStore";
+import { useDashboardStore, useSnapshot } from "../store/dashboardStore";
 
 export const profileKeys = {
   profile: (mid: number) => ["profile", mid] as const,
@@ -18,54 +24,27 @@ export const profileKeys = {
 const PROFILE_STALE = 10 * 60 * 1000;
 const STATS_STALE = 10 * 60 * 1000;
 
-/** Load cached profile for instant display (stale-while-revalidate). */
-function useCachedProfile(mid: number): UserProfile | null {
-  const [entry, setEntry] = useState<{ mid: number; profile: UserProfile | null } | null>(null);
-  useEffect(() => {
-    let on = true;
-    void getUserCache(mid).then((c) => {
-      if (on) setEntry({ mid, profile: c?.profile ?? null });
-    });
-    return () => {
-      on = false;
-    };
-  }, [mid]);
-  // Never return another mid's cached profile (prevents showing the previous user).
-  return entry && entry.mid === mid ? entry.profile : null;
-}
-
-function useCachedStats(mid: number): UserStats | null {
-  const [entry, setEntry] = useState<{ mid: number; stats: UserStats | null } | null>(null);
-  useEffect(() => {
-    let on = true;
-    void getUserCache(mid).then((c) => {
-      if (on) setEntry({ mid, stats: c?.stats ?? null });
-    });
-    return () => {
-      on = false;
-    };
-  }, [mid]);
-  return entry && entry.mid === mid ? entry.stats : null;
+/** The last successfully fetched profile for one UP (never another mid's). */
+function knownProfile(mid: number): UserProfile | undefined {
+  return useDashboardStore.getState().snapshots[mid]?.profile;
 }
 
 export function useUserProfile(mid: number, isForeground: boolean) {
-  const cached = useCachedProfile(mid);
-  const ready = useDelayedReady(3000);
   const visible = useUIStore((s) => s.isWindowVisible);
+  const snapshot = useSnapshot(mid);
+
   const query = useQuery({
     queryKey: profileKeys.profile(mid),
     queryFn: async () => {
       const fresh = await BilibiliAdapter.getUserProfile(mid);
-      const old = await getUserCache(mid).catch(() => null);
+      const old = knownProfile(mid);
 
       // The real custom space banner is only readable by its owner, so for the
-      // signed-in account try that first; otherwise keep whatever public banner
-      // we already had cached rather than dropping back to Bilibili's stock art.
+      // signed-in account try that first; otherwise keep whatever banner we
+      // already had cached rather than dropping back to Bilibili's stock art.
       const selfBanner = await BilibiliAdapter.getSelfBanner(mid).catch(() => undefined);
       if (selfBanner) fresh.topPhoto = selfBanner;
-      else if (old?.profile?.topPhoto && isDefaultBannerUrl(fresh.topPhoto)) {
-        fresh.topPhoto = old.profile.topPhoto;
-      }
+      else if (old?.topPhoto && isDefaultBannerUrl(fresh.topPhoto)) fresh.topPhoto = old.topPhoto;
 
       // MedalWall carries the real v2 medal gradient; only overwrite with it.
       const wallMedal = await BilibiliAdapter.getFansMedal(mid).catch(() => null);
@@ -73,10 +52,10 @@ export function useUserProfile(mid: number, isForeground: boolean) {
 
       // Never overwrite a previously-successful asset with an empty value when
       // the current fetch fell back to the card endpoint.
-      if (old?.profile) {
-        if (!fresh.topPhoto && old.profile.topPhoto) fresh.topPhoto = old.profile.topPhoto;
-        if (!fresh.pendantUrl && old.profile.pendantUrl) fresh.pendantUrl = old.profile.pendantUrl;
-        if (!fresh.fansMedal && old.profile.fansMedal) fresh.fansMedal = old.profile.fansMedal;
+      if (old) {
+        if (!fresh.topPhoto && old.topPhoto) fresh.topPhoto = old.topPhoto;
+        if (!fresh.pendantUrl && old.pendantUrl) fresh.pendantUrl = old.pendantUrl;
+        if (!fresh.fansMedal && old.fansMedal) fresh.fansMedal = old.fansMedal;
       }
       void setUserCacheProfile(mid, fresh).catch(() => {});
       return fresh;
@@ -84,15 +63,21 @@ export function useUserProfile(mid: number, isForeground: boolean) {
     staleTime: PROFILE_STALE,
     refetchInterval: profileInterval(visible ? "foreground" : "tray", isForeground),
     retry: 2,
-    enabled: ready,
   });
-  return { ...query, data: (query.data ?? cached) as UserProfile | undefined, isLoading: query.isLoading && cached == null };
+
+  const profile = query.data;
+  useEffect(() => {
+    if (!profile) return;
+    useDashboardStore.getState().patch(mid, { profile });
+  }, [mid, profile]);
+
+  return { ...query, data: snapshot?.profile as UserProfile | undefined, isLoading: false };
 }
 
 export function useUserStats(mid: number, isForeground: boolean) {
-  const cached = useCachedStats(mid);
-  const ready = useDelayedReady(3000);
   const visible = useUIStore((s) => s.isWindowVisible);
+  const snapshot = useSnapshot(mid);
+
   const query = useQuery({
     queryKey: profileKeys.stats(mid),
     queryFn: async () => {
@@ -105,20 +90,46 @@ export function useUserStats(mid: number, isForeground: boolean) {
     staleTime: STATS_STALE,
     refetchInterval: profileInterval(visible ? "foreground" : "tray", isForeground),
     retry: 1,
-    enabled: ready,
   });
-  return { ...query, data: (query.data ?? cached) as UserStats | undefined, isLoading: query.isLoading && cached == null };
+
+  const stats = query.data;
+  useEffect(() => {
+    if (!stats) return;
+    const store = useDashboardStore.getState();
+    store.patch(mid, { stats });
+    // Refresh the day/week/month deltas against the new counters.
+    void computeStatsGrowth(mid, stats)
+      .then((statsGrowth) => useDashboardStore.getState().patch(mid, { statsGrowth }))
+      .catch(() => {});
+  }, [mid, stats]);
+
+  return { ...query, data: snapshot?.stats as UserStats | undefined, isLoading: false };
 }
 
 export function useDecoration(mid: number) {
-  const ready = useDelayedReady(6000);
-  return useQuery({
+  const snapshot = useSnapshot(mid);
+
+  const query = useQuery({
     queryKey: profileKeys.decoration(mid),
-    queryFn: () => BilibiliAdapter.getDynamicDecoration(mid),
+    queryFn: async () => {
+      const decoration = await BilibiliAdapter.getDynamicDecoration(mid);
+      // A null result is a real answer ("this UP wears no decoration"), but it
+      // must not wipe artwork we already hold — only the feed can say so.
+      if (decoration) void setUserCacheDecoration(mid, decoration).catch(() => {});
+      return decoration;
+    },
     staleTime: 60 * 60 * 1000,
     retry: 0,
-    enabled: ready,
   });
+
+  const decoration = query.data;
+  useEffect(() => {
+    if (decoration === undefined) return;
+    if (decoration == null && useDashboardStore.getState().snapshots[mid]?.decoration) return;
+    useDashboardStore.getState().patch(mid, { decoration });
+  }, [mid, decoration]);
+
+  return { ...query, data: snapshot?.decoration as DynamicDecoration | null | undefined };
 }
 
 export interface ProfileCardData {
@@ -136,6 +147,12 @@ export function useProfileCard(mid: number, isForeground: boolean): ProfileCardD
     profile: profile.data,
     stats: stats.data,
     decoration: decoration.data,
-    loading: profile.isLoading,
+    // Only a genuinely unknown UP shows a placeholder; a switch never does.
+    loading: !profile.data,
   };
+}
+
+/** Read a cached profile once (used where no hook is available). */
+export async function peekUserCache(mid: number) {
+  return getUserCache(mid);
 }

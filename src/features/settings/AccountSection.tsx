@@ -120,7 +120,7 @@ export function AccountSection() {
   return (
     <div className="flex flex-col gap-3">
       <div className="text-xs leading-relaxed" style={{ color: "var(--text-2)" }}>
-        登录后可获取「获赞 / 总播放 / 粉丝牌」等需要登录的增强数据。扫码登录不上传任何信息，凭据使用 Windows DPAPI 加密保存在本机。
+        登录后可以显示获赞数、总播放量和粉丝牌等需要登录才能看到的数据。扫码登录不会上传任何信息，登录凭据加密保存在本机。
       </div>
 
       {/* ---- primary account (available logged in or not) ---- */}

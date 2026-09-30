@@ -5,12 +5,14 @@ import { useSubscriptions } from "../queries/subscriptions";
 import { useUIStore } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { useAuthStore } from "../store/authStore";
+import { useDashboardStore } from "../store/dashboardStore";
 import { Titlebar } from "../features/window-controls/Titlebar";
 import { Sidebar } from "../features/subscriptions/Sidebar";
 import { ProfileCard } from "../features/profile-card/ProfileCard";
 import { VideoList } from "../features/video-list/VideoList";
 import { AddSubscriptionModal } from "../features/subscriptions/AddSubscriptionModal";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
+import { useBackgroundRefresh } from "../queries/background";
 import {
   applyWindowEffects,
   setAlwaysOnTop,
@@ -65,27 +67,6 @@ function useWindowStateEffect() {
   }, [loaded, closeToTray]);
 }
 
-/** Shared refresh flag, so every trigger drives the one progress bar. */
-function useAutoProgress() {
-  const refreshing = useUIStore((s) => s.refreshing);
-  const setRefreshing = useUIStore((s) => s.setRefreshing);
-  const isFetching = useIsFetching();
-  const busy = refreshing || isFetching > 0;
-  const timer = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (refreshing) {
-      if (timer.current != null) window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => setRefreshing(false), 1500);
-    }
-    return () => {
-      if (timer.current != null) window.clearTimeout(timer.current);
-    };
-  }, [refreshing, setRefreshing]);
-
-  return busy;
-}
-
 /** Silent update check shortly after launch (never blocks or interrupts). */
 function useUpdateCheck() {
   const loaded = useSettingsStore((s) => s.loaded);
@@ -119,6 +100,23 @@ function useAuthEffect() {
   useEffect(() => {
     if (loaded) void hydrate();
   }, [loaded, hydrate]);
+}
+
+/** Startup stage B: paint the whole dashboard from SQLite before any request. */
+function useDashboardHydration() {
+  const loaded = useSettingsStore((s) => s.loaded);
+  const { data: subs } = useSubscriptions();
+  const hydrate = useDashboardStore((s) => s.hydrate);
+  const ran = useRef(false);
+
+  useEffect(() => {
+    if (ran.current || !loaded || !subs) return;
+    ran.current = true;
+    const store = useSettingsStore.getState();
+    const limits: Record<number, number> = {};
+    for (const s of subs) limits[s.mid] = store.effectiveVideoLimit(s.mid);
+    void hydrate(limits);
+  }, [loaded, subs, hydrate]);
 }
 
 /** React to tray / window-visibility events from the Rust layer. */
@@ -186,9 +184,10 @@ function ToastHost() {
   );
 }
 
-/** Window width below which the sidebar is forced into its mini form, so the
- *  video row still fits every metric column without clipping. */
-const AUTO_MINI_BELOW = 460;
+/** Window width below which the sidebar is forced into its mini form. An
+ *  expanded 208px sidebar plus the video row's metric lanes need this much
+ *  room, otherwise the row would have to fall back to its narrowest tier. */
+const AUTO_MINI_BELOW = 520;
 
 function useWindowWidth(): number {
   const [w, setW] = useState(() => (typeof window === "undefined" ? 800 : window.innerWidth));
@@ -206,9 +205,12 @@ function Main() {
   useAuthEffect();
   useUpdateCheck();
   useTrayEvents();
-  const { data: subs, isLoading } = useSubscriptions();
+  useDashboardHydration();
+  useBackgroundRefresh();
+  const { data: subs, isSuccess } = useSubscriptions();
   const selectedMid = useUIStore((s) => s.selectedMid);
   const setSelectedMid = useUIStore((s) => s.setSelectedMid);
+  const updateGlobal = useSettingsStore((s) => s.updateGlobal);
   const addOpen = useUIStore((s) => s.addOpen);
   const settingsOpen = useUIStore((s) => s.settingsOpen);
   const sidebarCollapsedState = useUIStore((s) => s.sidebarCollapsed);
@@ -216,26 +218,28 @@ function Main() {
   const locked = windowWidth < AUTO_MINI_BELOW;
   const sidebarCollapsed = sidebarCollapsedState || locked;
 
+  // Restore the UP that was open last time; fall back to the first one.
   useEffect(() => {
-    if (subs && subs.length > 0 && selectedMid == null) {
-      setSelectedMid(subs[0].mid);
-    }
-    if (subs && selectedMid != null && !subs.some((s) => s.mid === selectedMid)) {
-      setSelectedMid(subs[0]?.mid ?? null);
-    }
+    if (!subs) return;
+    const known = (mid: number | null) => mid != null && subs.some((s) => s.mid === mid);
+    if (known(selectedMid)) return;
+    const remembered = useSettingsStore.getState().global.lastSelectedMid;
+    setSelectedMid(known(remembered) ? remembered : (subs[0]?.mid ?? null));
   }, [subs, selectedMid, setSelectedMid]);
+
+  useEffect(() => {
+    if (selectedMid != null) updateGlobal({ lastSelectedMid: selectedMid });
+  }, [selectedMid, updateGlobal]);
 
   const hasSubs = !!subs && subs.length > 0;
 
-  // Collapsing the sidebar widens the window to the left so the visible panel
-  // keeps its width and the new strip stays transparent (bookmark rail lives there).
   return (
     <div className="app-root">
       <div className="app-shell">
         <div className="accent-bar" />
         <Titlebar />
         <div className="flex flex-1 min-h-0 relative">
-          <Sidebar subs={subs ?? []} loading={isLoading} collapsed={sidebarCollapsed} locked={locked} />
+          <Sidebar subs={subs ?? []} loading={!isSuccess} collapsed={sidebarCollapsed} locked={locked} />
           <main className="flex-1 min-w-0 p-2.5 flex flex-col min-h-0">
             {!hasSubs ? (
               <EmptyState />
@@ -256,12 +260,48 @@ function Main() {
   );
 }
 
-/** The single 2px progress line between the profile card and the video list. */
+/**
+ * The single 2px progress line between the profile card and the video list.
+ * It only ever reports a refresh the user asked for — background polling,
+ * a subscription switch or a startup revalidate stay invisible.
+ */
 function RefreshProgress() {
-  const busy = useAutoProgress();
+  const refreshing = useUIStore((s) => s.refreshing);
+  const setRefreshing = useUIStore((s) => s.setRefreshing);
+  const isFetching = useIsFetching();
+  const [visible, setVisible] = useState(false);
+  const shownAt = useRef(0);
+
+  useEffect(() => {
+    if (refreshing) {
+      shownAt.current = Date.now();
+      setVisible(true);
+      return;
+    }
+    if (!visible) return;
+    // Let the sweep complete at least one pass so it never just blinks.
+    const wait = Math.max(0, 650 - (Date.now() - shownAt.current));
+    const t = window.setTimeout(() => setVisible(false), wait);
+    return () => window.clearTimeout(t);
+  }, [refreshing, visible]);
+
+  // A user-requested refresh ends once its requests have settled.
+  useEffect(() => {
+    if (!refreshing || isFetching > 0) return;
+    const t = window.setTimeout(() => setRefreshing(false), 250);
+    return () => window.clearTimeout(t);
+  }, [refreshing, isFetching, setRefreshing]);
+
+  // Safety valve: never leave the line running if a request hangs.
+  useEffect(() => {
+    if (!refreshing) return;
+    const t = window.setTimeout(() => setRefreshing(false), 20_000);
+    return () => window.clearTimeout(t);
+  }, [refreshing, setRefreshing]);
+
   return (
     <div className="flex-none refresh-line" style={{ height: 2 }}>
-      <div className={`refresh-fill${busy ? " on" : ""}`} />
+      <div className={`refresh-fill${visible ? " on" : ""}`} />
     </div>
   );
 }

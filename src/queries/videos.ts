@@ -1,20 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { BilibiliAdapter, limited } from "../services/bilibili/adapter";
-import type { OnlineStats, VideoSummary } from "../services/bilibili/types";
 import { insertSnapshot } from "../services/database/snapshots";
-import { getCachedVideos, saveVideos, saveVideoDetail } from "../services/database/videos";
+import { saveVideos, saveVideoDetail } from "../services/database/videos";
 import { onlineInterval, videoStatsInterval } from "../utils/refresh";
 import { useUIStore } from "../store/uiStore";
+import { useDashboardStore, useSnapshot, type SnapshotVideo } from "../store/dashboardStore";
 
-export interface VideoItem extends VideoSummary {
-  view: number | null;
-  like: number | null;
-  coin: number | null;
-  cid: number;
-  online: OnlineStats | null;
-  onlineError: boolean;
-}
+export type VideoItem = SnapshotVideo;
 
 export const videoKeys = {
   list: (mid: number, limit: number) => ["videos", mid, limit] as const,
@@ -23,6 +16,11 @@ export const videoKeys = {
 const LIST_STALE = 5 * 60 * 1000;
 const ONLINE_STALE = 30 * 1000;
 
+/** Details fetched immediately; the rest trickle in so startup stays responsive. */
+const START_BURST = 10;
+const BURST_STEP = 5;
+const BURST_EVERY = 2500;
+
 interface DetailResult {
   view: number;
   like: number;
@@ -30,25 +28,30 @@ interface DetailResult {
   cid: number;
 }
 
-/** Read the last-known video list from SQLite for instant display. */
-function useCachedVideos(mid: number, limit: number): VideoSummary[] | null {
-  const [entry, setEntry] = useState<{ mid: number; list: VideoSummary[] } | null>(null);
+/**
+ * Release the per-video detail fetches in growing batches. Bilibili rate-limits
+ * bursts, and one request per row up front is what made the first paint slow.
+ */
+function useDetailBudget(count: number): number {
+  const [budget, setBudget] = useState(START_BURST);
   useEffect(() => {
-    let on = true;
-    void getCachedVideos(mid, limit).then((list) => {
-      if (on && list.length > 0) setEntry({ mid, list });
-    });
-    return () => {
-      on = false;
-    };
-  }, [mid, limit]);
-  return entry && entry.mid === mid ? entry.list : null;
+    if (budget >= count) return;
+    const t = window.setTimeout(() => setBudget((b) => b + BURST_STEP), BURST_EVERY);
+    return () => window.clearTimeout(t);
+  }, [budget, count]);
+  return budget;
 }
 
+/**
+ * The video list for one UP, always read from the in-memory snapshot so a
+ * subscription switch paints the whole page in one frame. Live data lands in
+ * the snapshot as it arrives and re-renders locally.
+ */
 export function useVideos(mid: number, limit: number, isForeground: boolean): VideoItem[] | undefined {
   const visible = useUIStore((s) => s.isWindowVisible);
   const mode = visible ? "foreground" : "tray";
-  const cachedList = useCachedVideos(mid, limit);
+  const snapshot = useSnapshot(mid);
+  const items = useMemo(() => snapshot?.videos ?? [], [snapshot?.videos]);
 
   const listQuery = useQuery({
     queryKey: videoKeys.list(mid, limit),
@@ -62,13 +65,16 @@ export function useVideos(mid: number, limit: number, isForeground: boolean): Vi
     retry: 2,
   });
 
-  const summaries = useMemo(
-    () => listQuery.data ?? cachedList ?? [],
-    [listQuery.data, cachedList],
-  );
+  const remoteList = listQuery.data;
+  useEffect(() => {
+    if (!remoteList) return;
+    useDashboardStore.getState().setVideoList(mid, remoteList);
+  }, [mid, remoteList]);
+
+  const budget = useDetailBudget(items.length);
 
   const detailQueries = useQueries({
-    queries: summaries.map((s: VideoSummary) => ({
+    queries: items.map((s: SnapshotVideo, i: number) => ({
       queryKey: ["videoDetail", s.bvid] as const,
       queryFn: async (): Promise<DetailResult> => {
         const detail = await limited(() => BilibiliAdapter.getVideoDetail(s.bvid));
@@ -81,19 +87,26 @@ export function useVideos(mid: number, limit: number, isForeground: boolean): Vi
           coinCount: detail.coin,
           onlineCount: null,
         }).catch(() => {});
-        void saveVideoDetail(s.bvid, { view: detail.view, like: detail.like, coin: detail.coin, cid: detail.cid, aid: detail.aid }).catch(() => {});
+        void saveVideoDetail(s.bvid, {
+          view: detail.view,
+          like: detail.like,
+          coin: detail.coin,
+          cid: detail.cid,
+          aid: detail.aid,
+        }).catch(() => {});
         return { view: detail.view, like: detail.like, coin: detail.coin, cid: detail.cid };
       },
       staleTime: LIST_STALE,
       refetchInterval: videoStatsInterval(mode, isForeground),
       retry: 1,
+      enabled: i < budget,
     })),
   });
 
-  // Online viewers: only poll for the foreground UP, and only when cid is known.
+  // Online viewers: only for the foreground UP, and only once the cid is known.
   const onlineQueries = useQueries({
-    queries: summaries.map((s: VideoSummary, i: number) => {
-      const cid = detailQueries[i]?.data?.cid ?? 0;
+    queries: items.map((s: SnapshotVideo, i: number) => {
+      const cid = detailQueries[i]?.data?.cid ?? s.cid;
       const interval = onlineInterval(mode, isForeground);
       return {
         queryKey: ["online", s.bvid, cid] as const,
@@ -106,17 +119,37 @@ export function useVideos(mid: number, limit: number, isForeground: boolean): Vi
     }),
   });
 
-  return summaries.map((s: VideoSummary, i: number) => {
-    const d = detailQueries[i]?.data;
-    const online = onlineQueries[i]?.data ?? null;
-    return {
-      ...s,
-      view: d?.view ?? null,
-      like: d?.like ?? null,
-      coin: d?.coin ?? null,
-      cid: d?.cid ?? 0,
-      online,
-      onlineError: onlineQueries[i]?.isError ?? false,
-    };
-  });
+  const detailSig = detailQueries.map((q) => q.data).map((d) => (d ? `${d.view}:${d.like}:${d.coin}:${d.cid}` : "")).join("|");
+  const onlineSig = onlineQueries.map((q) => q.data).map((o) => o?.displayText ?? "").join("|");
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    const rows: Record<string, { view: number | null; like: number | null; coin: number | null; cid: number; online: SnapshotVideo["online"] }> = {};
+    items.forEach((s, i) => {
+      const d = detailQueries[i]?.data;
+      const knownOnline = onlineQueries[i]?.data;
+      if (!d && knownOnline === undefined) return;
+      rows[s.bvid] = {
+        view: d?.view ?? null,
+        like: d?.like ?? null,
+        coin: d?.coin ?? null,
+        cid: d?.cid ?? s.cid,
+        online: onlineQueries[i]?.data ?? null,
+      };
+    });
+    if (Object.keys(rows).length > 0) {
+      useDashboardStore.getState().mergeVideoStats(mid, rows);
+    }
+    // The signatures are the actual payloads; the arrays are rebuilt each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mid, detailSig, onlineSig, items.length]);
+
+  return snapshot?.videos;
+}
+
+/** Invalidate everything the video list reads for one UP. */
+export function invalidateVideoData(qc: { invalidateQueries: (o: { queryKey: unknown[] }) => Promise<void> }, mid: number) {
+  void qc.invalidateQueries({ queryKey: ["videos", mid] });
+  void qc.invalidateQueries({ queryKey: ["videoDetail"] });
+  void qc.invalidateQueries({ queryKey: ["online"] });
 }

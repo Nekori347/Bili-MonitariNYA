@@ -46,7 +46,9 @@ export const useUIStore = create<UIState>((set) => ({
   toggleSortDirection: () =>
     set((s) => ({ sortDirection: s.sortDirection === "desc" ? "asc" : "desc" })),
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
-  setSettingsOpen: (open) => set({ settingsOpen: open }),
+  // The titlebar gear always opens the global defaults, never the last UP's page.
+  setSettingsOpen: (open) =>
+    set(open ? { settingsOpen: true, settingsTab: "global" } : { settingsOpen: false }),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
   openUserSettings: () => set({ settingsOpen: true, settingsTab: "perUser" }),
   setAddOpen: (open) => set({ addOpen: open }),

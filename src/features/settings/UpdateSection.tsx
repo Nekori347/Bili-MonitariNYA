@@ -1,12 +1,10 @@
 import { useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSettingsStore } from "../../store/settingsStore";
 import { checkForUpdate, installUpdate, type UpdateInfo } from "../../services/updater";
+import { GITHUB_RELEASES_URL } from "../../config/app";
 
-/**
- * Update controls. The app never touches user data during an update: the
- * database, settings, credential and caches all live under %APPDATA% and the
- * installer only replaces program files.
- */
+/** Update controls, plus a manual download path when the updater cannot run. */
 export function UpdateSection() {
   const autoCheck = useSettingsStore((s) => s.global.updateAutoCheck);
   const checkOnStart = useSettingsStore((s) => s.global.updateCheckOnStart);
@@ -50,19 +48,22 @@ export function UpdateSection() {
   return (
     <div className="flex flex-col gap-2">
       <div className="text-[12px] leading-relaxed" style={{ color: "var(--text-2)" }}>
-        更新通过 GitHub Releases 分发。安装包只替换程序文件，订阅、备注、设置、历史增长、B 站登录与缓存都不会被清空。
+        新版本会在这里提示并可以直接安装。安装只更新程序本身，订阅、备注、设置和 B 站登录状态都会保留。
       </div>
 
       <Row label="自动检查更新">
         <Switch on={autoCheck} onToggle={(v) => updateGlobal({ updateAutoCheck: v })} />
       </Row>
-      <Row label="启动时静默检查一次">
+      <Row label="启动时检查一次">
         <Switch on={checkOnStart} onToggle={(v) => updateGlobal({ updateCheckOnStart: v })} />
       </Row>
 
       <div className="flex items-center gap-2 mt-1">
         <button className="btn text-xs" disabled={status === "checking" || status === "downloading"} onClick={() => void check()}>
-          {status === "checking" ? "正在检查…" : "手动检查更新"}
+          {status === "checking" ? "正在检查…" : "检查更新"}
+        </button>
+        <button className="btn text-xs" title="在浏览器中打开下载页" onClick={() => void openUrl(GITHUB_RELEASES_URL)}>
+          手动下载
         </button>
         {status === "none" && <span className="text-[12px]" style={{ color: "var(--text-3)" }}>已是最新版本</span>}
         {status === "error" && <span className="text-[12px]" style={{ color: "#e5484d" }}>{error}</span>}

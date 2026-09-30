@@ -6,10 +6,10 @@ import { useUIStore, type SortField } from "../../store/uiStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useSubscriptions } from "../../queries/subscriptions";
 import { markSeen } from "../../services/database/subscriptions";
-import type { FieldVisibility, VideoFieldKey } from "../../types/settings";
+import type { FieldVisibility, HighlightField, VideoFieldKey } from "../../types/settings";
 import { coverUrl, videoUrl } from "../../services/bilibili/endpoints";
 import { formatAgo, formatAgoSpaced, formatCount } from "../../utils/format";
-import { useGrowthMap, type VideoGrowth } from "./useGrowthMap";
+import { growthFor, useGrowthMap, type VideoGrowth } from "./useGrowthMap";
 import { Clock, Coin, Eye, ListSort, Play, RefreshCw, SortAsc, SortDesc, ThumbUp } from "../../components/ui/Icons";
 
 const SORT_OPTIONS: { value: SortField; label: string }[] = [
@@ -19,17 +19,48 @@ const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "online", label: "在线人数" },
 ];
 
-/** Fixed column widths — digits must never push neighbouring columns around. */
-const COL_W: Record<VideoFieldKey, { wide: number; narrow: number }> = {
-  view: { wide: 46, narrow: 30 },
-  like: { wide: 46, narrow: 30 },
-  coin: { wide: 42, narrow: 26 },
-  online: { wide: 46, narrow: 30 },
-  pubdate: { wide: 52, narrow: 36 },
+/**
+ * Minimum lane width per metric. A column is a `min-width` box, not a fixed
+ * one: ordinary values keep their lane (so digits never shove a neighbour
+ * around), while an unusually long value widens its own lane instead of being
+ * clipped. Nothing in a video row is ever cut off.
+ */
+const WIDE_MIN: Record<VideoFieldKey, number> = {
+  view: 58,
+  like: 58,
+  coin: 54,
+  online: 58,
+  pubdate: 66,
 };
 
-/** Column width below which the row switches to its compact presentation. */
-const NARROW_AT = 380;
+const COMPACT_MIN: Record<VideoFieldKey, number> = {
+  view: 50,
+  like: 50,
+  coin: 46,
+  online: 50,
+  pubdate: 58,
+};
+
+/**
+ * Presentation tiers, chosen from the row's real available width.
+ *
+ *   wide    — icon + value inline, full-size cover
+ *   compact — icon + value inline, tighter gaps and a smaller cover
+ *   narrow  — icon above value, equal flexible columns
+ *
+ * Icons survive every tier; only the arrangement changes.
+ */
+type RowMode = "wide" | "compact" | "narrow";
+
+/** Values below are the smallest widths at which each tier still fits. */
+const WIDE_AT = 452;
+const COMPACT_AT = 364;
+
+const ROW_STYLE: Record<RowMode, { padding: number; gap: number; coverW: number; coverH: number; ratio: "16:9" | "4:3"; colGap: number; sepGap: number }> = {
+  wide: { padding: 6, gap: 10, coverW: 92, coverH: 52, ratio: "16:9", colGap: 8, sepGap: 6 },
+  compact: { padding: 5, gap: 8, coverW: 64, coverH: 38, ratio: "16:9", colGap: 4, sepGap: 6 },
+  narrow: { padding: 5, gap: 8, coverW: 44, coverH: 33, ratio: "4:3", colGap: 4, sepGap: 4 },
+};
 
 function onlineValue(v: VideoItem): number {
   if (v.online?.exactCount != null) return v.online.exactCount;
@@ -45,20 +76,28 @@ function onlineValue(v: VideoItem): number {
   return -1;
 }
 
-/** Tracks the rendered width so the row can compact itself when space is tight. */
-function useNarrow(ref: React.RefObject<HTMLElement | null>): boolean {
-  const [narrow, setNarrow] = useState(false);
+/** Pick the presentation tier from the measured width of the list viewport. */
+function useRowMode(ref: React.RefObject<HTMLElement | null>): RowMode {
+  const [mode, setMode] = useState<RowMode>("wide");
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? 0;
-      setNarrow(w > 0 && w < NARROW_AT);
-    });
+    const decide = (w: number) => {
+      if (w <= 0) return;
+      setMode(w >= WIDE_AT ? "wide" : w >= COMPACT_AT ? "compact" : "narrow");
+    };
+    // contentRect excludes padding, so it matches the row's own width exactly.
+    decide(el.clientWidth - 12);
+    const ro = new ResizeObserver((entries) => decide(entries[0]?.contentRect.width ?? 0));
     ro.observe(el);
     return () => ro.disconnect();
   }, [ref]);
-  return narrow;
+  return mode;
+}
+
+function minWidthFor(k: VideoFieldKey, mode: RowMode): number | undefined {
+  if (mode === "narrow") return undefined; // equal flex columns instead
+  return (mode === "wide" ? WIDE_MIN : COMPACT_MIN)[k];
 }
 
 export function VideoList({ mid }: { mid: number }) {
@@ -76,21 +115,23 @@ export function VideoList({ mid }: { mid: number }) {
   const fieldOrder = useSettingsStore((s) => s.global.videoFieldOrder);
   const pinnedRight = useSettingsStore((s) => s.global.videoPinnedRight);
 
-  const qc = useQueryClient();
   const setRefreshing = useUIStore((s) => s.setRefreshing);
+  const qc = useQueryClient();
   const [sortOpen, setSortOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
-  const narrow = useNarrow(listRef);
+  const mode = useRowMode(listRef);
 
   const videos = useVideos(mid, limit, selectedMid === mid);
-  const growthMap = useGrowthMap(videos ?? []);
+  const growthMap = useGrowthMap(mid, videos ?? []);
 
-  // Column order: user order, with the pinned field forced to the far right.
-  const columns = useMemo(() => {
+  // The stats line keeps only the fields that flow; 固定到最右 gets its own slot.
+  const statsColumns = useMemo(() => {
     const visible = fieldOrder.filter((k) => (k === "pubdate" ? true : isVideoFieldVisible(k, fields)));
-    const rest = visible.filter((k) => k !== pinnedRight);
-    return visible.includes(pinnedRight) ? [...rest, pinnedRight] : rest;
+    return visible.filter((k) => k !== pinnedRight);
   }, [fieldOrder, pinnedRight, fields]);
+
+  // A pinned field that the user has hidden simply is not rendered anywhere.
+  const trailing = pinnedRight === "pubdate" || isVideoFieldVisible(pinnedRight, fields) ? pinnedRight : null;
 
   const { data: subs } = useSubscriptions();
   const sub = subs?.find((s) => s.mid === mid);
@@ -123,12 +164,17 @@ export function VideoList({ mid }: { mid: number }) {
     return arr;
   }, [videos, sortField, sortDirection]);
 
+  /**
+   * The only place besides 设置 → 刷新全部数据 that raises the progress line.
+   * Background polling never touches `refreshing`.
+   */
   const refresh = () => {
     setRefreshing(true);
-    void qc.invalidateQueries({ queryKey: ["videos", mid] });
-    void qc.invalidateQueries({ queryKey: ["videoDetail"] });
-    void qc.invalidateQueries({ queryKey: ["online"] });
-    setTimeout(() => setRefreshing(false), 1200);
+    void Promise.all([
+      qc.invalidateQueries({ queryKey: ["videos", mid] }),
+      qc.invalidateQueries({ queryKey: ["videoDetail"] }),
+      qc.invalidateQueries({ queryKey: ["online"] }),
+    ]);
   };
 
   return (
@@ -172,8 +218,10 @@ export function VideoList({ mid }: { mid: number }) {
           <div className="py-10 text-center text-sm" style={{ color: "var(--text-3)" }}>暂无投稿数据</div>
         ) : (
           sorted.map((v) => (
-            <VideoRow key={v.bvid} v={v} columns={columns} narrow={narrow}
-              growth={growthMap[v.bvid]} sortField={sortField} highlightField={highlightField} period={growthPeriod} />
+            <VideoRow key={v.bvid} v={v} mode={mode}
+              statsColumns={statsColumns} trailing={trailing}
+              growth={growthFor(growthMap, v.bvid)}
+              sortField={sortField} highlightField={highlightField} period={growthPeriod} />
           ))
         )}
       </div>
@@ -191,64 +239,63 @@ function isVideoFieldVisible(k: VideoFieldKey, fields: FieldVisibility): boolean
   }
 }
 
-function VideoRow({ v, columns, narrow, growth, sortField, highlightField, period }: {
+/** Pink marks the active sort field; blue marks the user's fixed highlight. */
+function fieldColor(k: VideoFieldKey, sortField: SortField, highlightField: HighlightField): string | undefined {
+  if (sortField === k) return "#fb7299";
+  if (highlightField === k) return "#00aeec";
+  return undefined;
+}
+
+function VideoRow({ v, mode, statsColumns, trailing, growth, sortField, highlightField, period }: {
   v: VideoItem;
-  columns: VideoFieldKey[];
-  narrow: boolean;
-  growth: VideoGrowth | undefined;
+  mode: RowMode;
+  statsColumns: VideoFieldKey[];
+  trailing: VideoFieldKey | null;
+  growth: VideoGrowth;
   sortField: SortField;
-  highlightField: string;
+  highlightField: HighlightField;
   period: "day" | "week" | "month";
 }) {
-  const g = growth ?? { view: { day: null, week: null, month: null }, like: { day: null, week: null, month: null }, coin: { day: null, week: null, month: null } };
-  const cellColor = (key: string): string | undefined => {
-    if (sortField === key) return "#fb7299";
-    if (highlightField === key) return "#00aeec";
-    return undefined;
-  };
+  const style = ROW_STYLE[mode];
+  const iconSize = mode === "narrow" ? 10 : 11;
 
-  const gridTemplate = columns.map((k) => `${COL_W[k][narrow ? "narrow" : "wide"]}px`).join(" ");
-  const gap = narrow ? 5 : 8;
-  const iconSize = narrow ? 0 : 11;
-
-  const cell = (k: VideoFieldKey) => {
+  const renderCell = (k: VideoFieldKey, key: string) => {
+    const color = fieldColor(k, sortField, highlightField);
+    const width = minWidthFor(k, mode);
     switch (k) {
       case "view":
-        return <Cell key="view" icon={<Play size={iconSize} />} text={v.view == null ? "" : formatCount(v.view)} color={cellColor("view")} />;
+        return <DataColumn key={key} mode={mode} minWidth={width} icon={<Play size={iconSize} />}
+          text={v.view == null ? "" : formatCount(v.view)} color={color} growth={growth.view[period]} />;
       case "like":
-        return <Cell key="like" icon={<ThumbUp size={iconSize} />} text={v.like == null ? "" : formatCount(v.like)} color={cellColor("like")} />;
+        return <DataColumn key={key} mode={mode} minWidth={width} icon={<ThumbUp size={iconSize} />}
+          text={v.like == null ? "" : formatCount(v.like)} color={color} growth={growth.like[period]} />;
       case "coin":
-        return <Cell key="coin" icon={<Coin size={iconSize} />} text={v.coin == null ? "" : formatCount(v.coin)} color={cellColor("coin")} />;
+        return <DataColumn key={key} mode={mode} minWidth={width} icon={<Coin size={iconSize} />}
+          text={v.coin == null ? "" : formatCount(v.coin)} color={color} growth={growth.coin[period]} />;
       case "online":
-        return <Cell key="online" icon={<Eye size={iconSize} />} text={v.online ? v.online.displayText : ""} color={cellColor("online")} />;
+        return <DataColumn key={key} mode={mode} minWidth={width} icon={<Eye size={iconSize} />}
+          text={v.online ? v.online.displayText : ""} color={color} growth={null} />;
       default:
-        return <Cell key="pubdate" icon={<Clock size={iconSize} />} text={`${formatAgo(v.pubdate)}前`} color={cellColor("pubdate")} />;
+        // 投稿时间 carries no growth pill — it is not a counter.
+        return <DataColumn key={key} mode={mode} minWidth={width} icon={<Clock size={iconSize} />}
+          text={`${formatAgo(v.pubdate)}前`} color={color} growth={null} />;
     }
-  };
-
-  const delta = (k: VideoFieldKey) => {
-    if (k === "view") return <Delta key="dv" v={g.view[period]} />;
-    if (k === "like") return <Delta key="dl" v={g.like[period]} />;
-    if (k === "coin") return <Delta key="dc" v={g.coin[period]} />;
-    return <span key={`d-${k}`} />;
   };
 
   return (
     <div
       className="flex rounded-lg cursor-pointer transition-colors"
-      style={{ gap: narrow ? 8 : 10, padding: 6 }}
+      style={{ gap: style.gap, padding: style.padding, alignItems: "flex-start" }}
       onMouseEnter={(e) => (e.currentTarget.style.background = "var(--hover)")}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
       onClick={() => void openUrl(videoUrl(v.bvid))}
       title="点击打开视频"
     >
       <img
-        src={coverUrl(v.cover, narrow ? "4:3" : "16:9")}
+        src={coverUrl(v.cover, style.ratio)}
         alt=""
         className="rounded-md object-cover flex-none self-start"
-        style={narrow
-          ? { width: 56, height: 42, background: "var(--surface-2)" }
-          : { width: 92, height: 52, background: "var(--surface-2)" }}
+        style={{ width: style.coverW, height: style.coverH, background: "var(--surface-2)", flexShrink: 0 }}
         draggable={false}
         referrerPolicy="no-referrer"
       />
@@ -256,31 +303,55 @@ function VideoRow({ v, columns, narrow, growth, sortField, highlightField, perio
         <div className="text-[12.5px] font-medium leading-snug" style={{ color: "var(--text)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
           {v.title}
         </div>
-        {/* Fixed-width columns: values of any length stay in their own lane. */}
-        <div className="grid items-center mt-1" style={{ gridTemplateColumns: gridTemplate, columnGap: gap, justifyContent: "start" }}>
-          {columns.map(cell)}
-          {columns.map(delta)}
+        {/* Stats flow on the left; 固定到最右 owns the row's trailing edge. */}
+        <div className="flex items-start" style={{ gap: style.sepGap, marginTop: 4 }}>
+          {statsColumns.length > 0 && (
+            <div
+              className={`flex items-start${mode === "narrow" ? " is-narrow" : ""}`}
+              style={{ gap: style.colGap, minWidth: 0 }}
+            >
+              {statsColumns.map((k) => renderCell(k, k))}
+            </div>
+          )}
+          <span className="flex-1" />
+          {trailing && <div className="video-trailing">{renderCell(trailing, "trailing")}</div>}
         </div>
       </div>
     </div>
   );
 }
 
-function Cell({ icon, text, color }: { icon?: React.ReactNode; text: string; color?: string }) {
+/**
+ * One metric: icon + value on top, growth pill centered underneath. The pill is
+ * its own child of the column, so it always lines up with the number above it.
+ */
+function DataColumn({ mode, minWidth, icon, text, color, growth }: {
+  mode: RowMode;
+  minWidth?: number;
+  icon: React.ReactNode;
+  text: string;
+  color?: string;
+  growth: number | null;
+}) {
+  const stacked = mode === "narrow";
   return (
-    <span className="inline-flex items-center gap-[3px] text-[11px] whitespace-nowrap overflow-hidden"
-      style={{ color: color ?? "var(--text-2)" }} title={text || undefined}>
-      {icon}{text}
+    <span className="data-col" style={{ minWidth, color: color ?? "var(--text-2)" }}>
+      <span className={`data-col-value${stacked ? " stacked" : ""}`} title={text || undefined}>
+        <span className="data-col-icon">{icon}</span>
+        <span className="data-col-text">{text}</span>
+      </span>
+      <span className="data-col-growth">
+        {growth != null && <GrowthPill v={growth} />}
+      </span>
     </span>
   );
 }
 
-function Delta({ v }: { v: number | null }) {
-  if (v == null) return <span />;
+function GrowthPill({ v }: { v: number }) {
   const color = v > 0 ? "#22a06b" : v < 0 ? "#e5484d" : "var(--text-3)";
   return (
-    <span className="inline-flex text-[10px] font-medium px-1 rounded whitespace-nowrap" style={{ color, background: `color-mix(in srgb, ${color} 12%, transparent)`, width: "fit-content" }}>
-      {v >= 0 ? "+" : ""}{formatCount(v)}
+    <span className="growth-pill" style={{ color, background: `color-mix(in srgb, ${color} 12%, transparent)` }}>
+      {v > 0 ? "+" : ""}{formatCount(v)}
     </span>
   );
 }
