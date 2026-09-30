@@ -578,14 +578,16 @@ body {
   flex: 0 0 auto;
 }
 
-/* ---- 装扮编号: artwork + overlaid fan number ----------------------------
+/* ---- 装扮编号: artwork + fan number, one unit ---------------------------
 
-   Image and number are one object. The number sits inside the plate the
-   artwork already reserves for it, and a soft dark halo behind the whole
-   ornament keeps it from dissolving into a light banner. */
+   B站's own structure. There is deliberately NO plate, halo or card behind
+   this — the only chrome is the themed capsule the number sits in, and the
+   capsule hugs the digits. The artwork keeps its transparency and simply sits
+   to the right of the capsule, overlapping it slightly so the two read as a
+   single ornament rather than as two separate elements. */
 .ornament {
   position: relative;
-  height: 48px;
+  height: 46px;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
@@ -594,74 +596,45 @@ body {
   cursor: default;
   user-select: none;
 }
-.ornament::before {
-  content: "";
-  position: absolute;
-  inset: -3px -6px;
-  border-radius: 12px;
-  background: radial-gradient(
-    ellipse at 32% 50%,
-    rgba(0, 0, 0, 0.42) 0%,
-    rgba(0, 0, 0, 0.24) 55%,
-    rgba(0, 0, 0, 0) 100%
-  );
-  pointer-events: none;
-  z-index: 0;
-}
 .ornament-img {
-  position: relative;
-  z-index: 1;
-  height: 48px;
+  height: 46px;
   width: auto;
-  max-width: 132px;
+  max-width: 160px;
   object-fit: contain;
   display: block;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.35));
 }
 /* Preview only: reserves the artwork's slot when the UP wears no decoration. */
 .ornament-placeholder {
   display: block;
-  width: 96px;
-  height: 48px;
+  width: 88px;
+  height: 46px;
   border-radius: 8px;
   border: 1px dashed var(--accent-ring);
   background: color-mix(in srgb, var(--surface-2) 70%, transparent);
 }
-/* Sits in the artwork's reserved plate, exactly like Bilibili's own
-   `.bili-dyn-ornament__type--3 span`. A faint white plate plus a light stroke
-   lift the digits off a busy banner without becoming a separate white card. */
+/* The number is drawn ON the capsule the artwork already contains — B站's fan
+   card is a 438×132 image whose left third is the graded plate and whose right
+   side is the character. So there is no background here at all: no black
+   backdrop, no white plate, no second pill. Only the digits, with a white
+   stroke and a soft shadow so they stay legible on any theme colour. */
 .ornament-num {
   position: absolute;
-  left: 3%;
+  left: 36%;
+  width: 32%;
   top: 50%;
-  width: 42%;
-  z-index: 2;
+  transform: translateY(-50%);
   text-align: center;
   font-family: fanscard, "Reeji-CloudHuPo-GBK", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 16px;
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
   letter-spacing: 0.02em;
-  transform: translateY(-50%) scale(0.7);
-  transform-origin: center center;
+  color: #fff;
+  -webkit-text-stroke: 0.4px rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
   pointer-events: none;
-  -webkit-text-stroke: 0.25px rgba(255, 255, 255, 0.5);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-}
-/* Very light translucent backing, sized to the plate rather than the card. */
-.ornament-num::before {
-  content: "";
-  position: absolute;
-  inset: -3px -5px;
-  border-radius: 7px;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.20) 0%,
-    rgba(255, 255, 255, 0.10) 100%
-  );
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  z-index: -1;
 }
 /* Only inside the settings preview does it need to accept a click. */
 .pz-scope .ornament,
@@ -693,6 +666,8 @@ body {
   align-items: center;
   height: 21px;
   min-width: 0;
+  /* Centring only — the name must never depend on the text baseline. */
+  line-height: 1;
 }
 .fm-name > span {
   display: inline-block;
@@ -701,11 +676,12 @@ body {
   line-height: 21px;
   font-weight: 500;
   white-space: nowrap;
-  /* Layout cap only — with zoom 0.5 this is ~110px on screen (≈10 CJK chars).
-     A longer name ellipsises inside its own box instead of overflowing. */
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* No `overflow: hidden` / ellipsis here on purpose: with `zoom` a scroll box
+     can slice a glyph down its middle, which is exactly the "牌名中间被裁"
+     artefact. The name is allowed to render at its natural width instead. */
+  max-width: 300px;
+  overflow: visible;
+  vertical-align: middle;
   zoom: 0.5;
 }
 .fm-level {
@@ -737,6 +713,38 @@ body {
   width: auto;
   flex: none;
   margin-left: 1px;
+}
+
+/* ---- Profile stats column: three fixed-height rows ---------------------- */
+.stat-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  text-align: center;
+  line-height: 1;
+}
+.stat-cell-label {
+  height: 13px;
+  line-height: 13px;
+  font-size: 9.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.stat-cell-value {
+  height: 20px;
+  line-height: 20px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.stat-cell-growth {
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 勋章 / Nameplate badge beside the username. */

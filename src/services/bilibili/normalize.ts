@@ -326,6 +326,9 @@ export function normalizeDecoration(raw: any): DynamicDecoration | null {
       fanNumberText: fanText,
       color: colorFormat?.colors?.[0] ?? toHexColor(fan.color),
       colorFormat,
+      // The capsule colour B站 themes the ornament with; `theme_color` is a
+      // plain hex, not part of color_format.
+      themeColor: toHexColor(dec.theme_color) ?? toHexColor(dec.themeColor),
     };
   }
   return null;

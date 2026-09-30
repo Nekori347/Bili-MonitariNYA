@@ -119,6 +119,8 @@ export interface DynamicDecoration {
   fanNumberText?: string;
   color?: string;
   colorFormat?: DecorationColorFormat;
+  /** `decoration_card.theme_color` — the capsule colour the artwork is themed with. */
+  themeColor?: string;
 }
 
 export type BiliErrorType =

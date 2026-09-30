@@ -391,19 +391,21 @@ function ProfileStats({
 
 /**
  * Stats cell, three stacked rows: label / value / growth pill.
- * `deltaNode` is supplied by the caller so the pill can be its own preview zone
- * (显示字段 与 显示增长 相互独立). Missing values render as an empty slot.
+ *
+ * All three rows have a fixed height, so a column with no value (获赞 needs a
+ * login) keeps exactly the same shape as its neighbours and the label never
+ * drifts toward or away from the number. `deltaNode` is supplied by the caller
+ * so the pill can be its own preview zone (显示字段 与 显示增长 相互独立).
  */
 function StatCell({ label, value, deltaNode }: { label: string; value: number | null; deltaNode?: ReactNode }) {
   return (
-    <span className="flex flex-col items-center justify-center" style={{ lineHeight: 1.1, minWidth: 0, textAlign: "center" }}>
-      <span className="text-[9.5px] whitespace-nowrap" style={{ color: "var(--text-3)" }}>{label}</span>
-      <span className="text-[15px] font-semibold whitespace-nowrap" style={{ color: "var(--text)" }} title={value != null ? String(value) : undefined}>
-        {value == null ? "" : formatCount(value)}
+    <span className="stat-cell">
+      <span className="stat-cell-label">{label}</span>
+      <span className="stat-cell-value" title={value != null ? String(value) : undefined}>
+        {/* A non-breaking space keeps the row's box when there is no data. */}
+        {value == null ? " " : formatCount(value)}
       </span>
-      <span className="flex items-center justify-center" style={{ height: 13 }}>
-        {deltaNode}
-      </span>
+      <span className="stat-cell-growth">{deltaNode}</span>
     </span>
   );
 }
@@ -569,32 +571,15 @@ const GUARD_NAME: Record<number, string> = { 1: "总督", 2: "提督", 3: "舰�
 function Ornament({ decoration, src }: { decoration: DynamicDecoration; src?: string }) {
   const url = decoration.imageEnhance || src || decoration.cardUrl;
   const label = decoration.fanNumberText;
-  const numStyle = useMemo(() => ornamentNumberStyle(decoration), [decoration]);
   if (!url) return null;
   return (
     <div className="ornament" title={decoration.name}>
       <img src={url} alt="" className="ornament-img" draggable={false} referrerPolicy="no-referrer" {...assetImgHandlers()} />
-      {label && <span className="ornament-num" style={numStyle}>{label}</span>}
+      {/* Overlaid on the card's own plate — the card already carries the
+          gradient, so nothing is drawn behind the digits. */}
+      {label && <span className="ornament-num">{label}</span>}
     </div>
   );
-}
-
-/** `color_format` wins over the flat `fan.color`; gradients become text fills. */
-function ornamentNumberStyle(d: DynamicDecoration): CSSProperties {
-  const cf = d.colorFormat;
-  const colors = (cf?.colors ?? []).filter((c): c is string => !!c);
-  if (colors.length >= 2) {
-    const angle = Number.isFinite(cf?.startPoint) ? Number(cf?.startPoint) : 90;
-    return {
-      backgroundImage: `linear-gradient(${angle}deg, ${colors.join(", ")})`,
-      WebkitBackgroundClip: "text",
-      backgroundClip: "text",
-      color: "transparent",
-    };
-  }
-  if (colors.length === 1) return { color: colors[0] };
-  if (d.color) return { color: d.color };
-  return { color: "#fff" };
 }
 
 export function ProfileCard({ mid }: { mid: number }) {

@@ -13,6 +13,7 @@ import { isDefaultBannerUrl } from "../services/bilibili/adapter";
 import { profileInterval } from "../utils/refresh";
 import { computeStatsGrowth } from "../utils/growth";
 import { useUIStore } from "../store/uiStore";
+import { useAuthStore } from "../store/authStore";
 import { useDashboardStore, useSnapshot } from "../store/dashboardStore";
 
 export const profileKeys = {
@@ -29,8 +30,19 @@ function knownProfile(mid: number): UserProfile | undefined {
   return useDashboardStore.getState().snapshots[mid]?.profile;
 }
 
+/**
+ * The session cookie is restored asynchronously, and `/space/wbi/acc/info`
+ * only returns the real custom banner when it is present — without it Bilibili
+ * answers with its stock artwork. Waiting for the restore before fetching is
+ * what keeps 自定义 Banner correct on the very first load.
+ */
+function useAuthReady(): boolean {
+  return useAuthStore((s) => s.status !== "loading");
+}
+
 export function useUserProfile(mid: number, isForeground: boolean) {
   const visible = useUIStore((s) => s.isWindowVisible);
+  const authReady = useAuthReady();
   const snapshot = useSnapshot(mid);
 
   const query = useQuery({
@@ -63,6 +75,7 @@ export function useUserProfile(mid: number, isForeground: boolean) {
     staleTime: PROFILE_STALE,
     refetchInterval: profileInterval(visible ? "foreground" : "tray", isForeground),
     retry: 2,
+    enabled: authReady,
   });
 
   const profile = query.data;
@@ -76,6 +89,7 @@ export function useUserProfile(mid: number, isForeground: boolean) {
 
 export function useUserStats(mid: number, isForeground: boolean) {
   const visible = useUIStore((s) => s.isWindowVisible);
+  const authReady = useAuthReady();
   const snapshot = useSnapshot(mid);
 
   const query = useQuery({
@@ -90,6 +104,9 @@ export function useUserStats(mid: number, isForeground: boolean) {
     staleTime: STATS_STALE,
     refetchInterval: profileInterval(visible ? "foreground" : "tray", isForeground),
     retry: 1,
+    // 获赞 / 总播放 only come back with a session; fetching as a guest just
+    // burns a request and caches a null.
+    enabled: authReady,
   });
 
   const stats = query.data;
