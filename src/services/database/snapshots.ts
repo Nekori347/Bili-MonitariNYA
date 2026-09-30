@@ -8,14 +8,27 @@ export interface Snapshot {
   likeCount: number | null;
   coinCount: number | null;
   onlineCount: number | null;
+  danmakuCount: number | null;
+  replyCount: number | null;
 }
 
 export async function insertSnapshot(s: Snapshot): Promise<void> {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO video_snapshots (mid, bvid, captured_at, view_count, like_count, coin_count, online_count)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [s.mid, s.bvid, s.capturedAt, s.viewCount, s.likeCount, s.coinCount, s.onlineCount],
+    `INSERT INTO video_snapshots
+       (mid, bvid, captured_at, view_count, like_count, coin_count, online_count, danmaku_count, reply_count)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      s.mid,
+      s.bvid,
+      s.capturedAt,
+      s.viewCount,
+      s.likeCount,
+      s.coinCount,
+      s.onlineCount,
+      s.danmakuCount ?? null,
+      s.replyCount ?? null,
+    ],
   );
 }
 
@@ -37,6 +50,8 @@ export async function getSnapshotNear(bvid: string, targetTs: number): Promise<S
     likeCount: rows[0].like_count != null ? Number(rows[0].like_count) : null,
     coinCount: rows[0].coin_count != null ? Number(rows[0].coin_count) : null,
     onlineCount: rows[0].online_count != null ? Number(rows[0].online_count) : null,
+    danmakuCount: rows[0].danmaku_count != null ? Number(rows[0].danmaku_count) : null,
+    replyCount: rows[0].reply_count != null ? Number(rows[0].reply_count) : null,
   };
 }
 

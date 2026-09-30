@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useVideos, type VideoItem } from "../../queries/videos";
@@ -10,57 +10,85 @@ import type { FieldVisibility, HighlightField, VideoFieldKey } from "../../types
 import { coverUrl, videoUrl } from "../../services/bilibili/endpoints";
 import { formatAgo, formatAgoSpaced, formatCount } from "../../utils/format";
 import { growthFor, useGrowthMap, type VideoGrowth } from "./useGrowthMap";
-import { Clock, Coin, Eye, ListSort, Play, RefreshCw, SortAsc, SortDesc, ThumbUp } from "../../components/ui/Icons";
+import {
+  Clock,
+  Coin,
+  Comment,
+  Danmaku,
+  Eye,
+  ListSort,
+  Play,
+  RefreshCw,
+  SortAsc,
+  SortDesc,
+  ThumbUp,
+} from "../../components/ui/Icons";
 
 const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "pubdate", label: "发布时间" },
   { value: "view", label: "播放量" },
   { value: "like", label: "点赞量" },
+  { value: "coin", label: "投币量" },
+  { value: "danmaku", label: "弹幕量" },
+  { value: "reply", label: "评论量" },
   { value: "online", label: "在线人数" },
 ];
 
-/**
- * Minimum lane width per metric. A column is a `min-width` box, not a fixed
- * one: ordinary values keep their lane (so digits never shove a neighbour
- * around), while an unusually long value widens its own lane instead of being
- * clipped. Nothing in a video row is ever cut off.
- */
-const WIDE_MIN: Record<VideoFieldKey, number> = {
-  view: 58,
-  like: 58,
-  coin: 54,
-  online: 58,
-  pubdate: 66,
-};
-
-const COMPACT_MIN: Record<VideoFieldKey, number> = {
-  view: 50,
-  like: 50,
-  coin: 46,
-  online: 50,
-  pubdate: 58,
-};
-
-/**
- * Presentation tiers, chosen from the row's real available width.
+/* ------------------------------------------------------------------ *
+ * Continuous compression
  *
- *   wide    — icon + value inline, full-size cover
- *   compact — icon + value inline, tighter gaps and a smaller cover
- *   narrow  — icon above value, equal flexible columns
- *
- * Icons survive every tier; only the arrangement changes.
- */
-type RowMode = "wide" | "compact" | "narrow";
+ * The row never makes a structural jump while there is still room. As it gets
+ * narrower every dimension is interpolated — first the gaps between metrics,
+ * then the padding, then the cover — so the fields simply move closer together.
+ * Only when the metrics' real minimum widths genuinely cannot fit does a single
+ * field fold into its stacked (icon over value) form.
+ * ------------------------------------------------------------------ */
 
-/** Values below are the smallest widths at which each tier still fits. */
-const WIDE_AT = 452;
-const COMPACT_AT = 364;
+/** Container width at which the row is at its tightest / roomiest. */
+const TIGHT_W = 300;
+const ROOMY_W = 520;
 
-const ROW_STYLE: Record<RowMode, { padding: number; gap: number; coverW: number; coverH: number; ratio: "16:9" | "4:3"; colGap: number; sepGap: number }> = {
-  wide: { padding: 6, gap: 10, coverW: 92, coverH: 52, ratio: "16:9", colGap: 8, sepGap: 6 },
-  compact: { padding: 5, gap: 8, coverW: 64, coverH: 38, ratio: "16:9", colGap: 4, sepGap: 6 },
-  narrow: { padding: 5, gap: 8, coverW: 44, coverH: 33, ratio: "4:3", colGap: 4, sepGap: 4 },
-};
+/** Never let two metrics touch, and never spend more than this between them. */
+const GAP_MIN = 5;
+const GAP_MAX = 10;
+const COL_GAP_MIN = 4;
+const COL_GAP_MAX = 8;
+const PAD_MIN = 4;
+const PAD_MAX = 6;
+const COVER_MIN = 68;
+const COVER_MAX = 92;
+
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+function rowMetrics(width: number) {
+  const t = clamp01((width - TIGHT_W) / (ROOMY_W - TIGHT_W));
+  const coverW = Math.round(lerp(COVER_MIN, COVER_MAX, t));
+  return {
+    padding: Math.round(lerp(PAD_MIN, PAD_MAX, t) * 10) / 10,
+    gap: Math.round(lerp(GAP_MIN, GAP_MAX, t) * 10) / 10,
+    colGap: Math.round(lerp(COL_GAP_MIN, COL_GAP_MAX, t) * 10) / 10,
+    sepGap: Math.round(lerp(4, 6, t) * 10) / 10,
+    coverW,
+    coverH: Math.round((coverW * 9) / 16),
+    iconSize: Math.round(lerp(10, 11, t)),
+  };
+}
+
+/** Live width of the scrolling list, which is what a row actually gets. */
+function useContainerWidth(ref: React.RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const decide = (w: number) => w > 0 && setWidth(w);
+    decide(el.clientWidth - 12); // minus the list's own padding
+    const ro = new ResizeObserver((entries) => decide(entries[0]?.contentRect.width ?? 0));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return width;
+}
 
 function onlineValue(v: VideoItem): number {
   if (v.online?.exactCount != null) return v.online.exactCount;
@@ -74,30 +102,6 @@ function onlineValue(v: VideoItem): number {
     }
   }
   return -1;
-}
-
-/** Pick the presentation tier from the measured width of the list viewport. */
-function useRowMode(ref: React.RefObject<HTMLElement | null>): RowMode {
-  const [mode, setMode] = useState<RowMode>("wide");
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const decide = (w: number) => {
-      if (w <= 0) return;
-      setMode(w >= WIDE_AT ? "wide" : w >= COMPACT_AT ? "compact" : "narrow");
-    };
-    // contentRect excludes padding, so it matches the row's own width exactly.
-    decide(el.clientWidth - 12);
-    const ro = new ResizeObserver((entries) => decide(entries[0]?.contentRect.width ?? 0));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [ref]);
-  return mode;
-}
-
-function minWidthFor(k: VideoFieldKey, mode: RowMode): number | undefined {
-  if (mode === "narrow") return undefined; // equal flex columns instead
-  return (mode === "wide" ? WIDE_MIN : COMPACT_MIN)[k];
 }
 
 export function VideoList({ mid }: { mid: number }) {
@@ -119,7 +123,8 @@ export function VideoList({ mid }: { mid: number }) {
   const qc = useQueryClient();
   const [sortOpen, setSortOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
-  const mode = useRowMode(listRef);
+  const width = useContainerWidth(listRef);
+  const metrics = useMemo(() => rowMetrics(width || ROOMY_W), [width]);
 
   const videos = useVideos(mid, limit, selectedMid === mid);
   const growthMap = useGrowthMap(mid, videos ?? []);
@@ -156,6 +161,9 @@ export function VideoList({ mid }: { mid: number }) {
       switch (sortField) {
         case "view": va = a.view ?? -1; vb = b.view ?? -1; break;
         case "like": va = a.like ?? -1; vb = b.like ?? -1; break;
+        case "coin": va = a.coin ?? -1; vb = b.coin ?? -1; break;
+        case "danmaku": va = a.danmaku ?? -1; vb = b.danmaku ?? -1; break;
+        case "reply": va = a.reply ?? -1; vb = b.reply ?? -1; break;
         case "online": va = onlineValue(a); vb = onlineValue(b); break;
         default: va = a.pubdate; vb = b.pubdate;
       }
@@ -218,7 +226,7 @@ export function VideoList({ mid }: { mid: number }) {
           <div className="py-10 text-center text-sm" style={{ color: "var(--text-3)" }}>暂无投稿数据</div>
         ) : (
           sorted.map((v) => (
-            <VideoRow key={v.bvid} v={v} mode={mode}
+            <VideoRow key={v.bvid} v={v} metrics={metrics}
               statsColumns={statsColumns} trailing={trailing}
               growth={growthFor(growthMap, v.bvid)}
               sortField={sortField} highlightField={highlightField} period={growthPeriod} />
@@ -234,6 +242,8 @@ function isVideoFieldVisible(k: VideoFieldKey, fields: FieldVisibility): boolean
     case "view": return fields.videoView;
     case "like": return fields.videoLike;
     case "coin": return fields.videoCoin;
+    case "danmaku": return fields.videoDanmaku;
+    case "reply": return fields.videoReply;
     case "online": return fields.videoOnline;
     default: return true;
   }
@@ -246,9 +256,17 @@ function fieldColor(k: VideoFieldKey, sortField: SortField, highlightField: High
   return undefined;
 }
 
-function VideoRow({ v, mode, statsColumns, trailing, growth, sortField, highlightField, period }: {
+type Metrics = ReturnType<typeof rowMetrics>;
+
+/** Natural width of a `nowrap` label, independent of how it is constrained. */
+function contentWidth(el: HTMLElement | null): number {
+  if (!el) return 0;
+  return Math.max(el.scrollWidth, el.offsetWidth);
+}
+
+function VideoRow({ v, metrics, statsColumns, trailing, growth, sortField, highlightField, period }: {
   v: VideoItem;
-  mode: RowMode;
+  metrics: Metrics;
   statsColumns: VideoFieldKey[];
   trailing: VideoFieldKey | null;
   growth: VideoGrowth;
@@ -256,28 +274,59 @@ function VideoRow({ v, mode, statsColumns, trailing, growth, sortField, highligh
   highlightField: HighlightField;
   period: "day" | "week" | "month";
 }) {
-  const style = ROW_STYLE[mode];
-  const iconSize = mode === "narrow" ? 10 : 11;
+  /* Stacked is a measured fallback, not a breakpoint: this row only folds a
+     field once its own metrics genuinely no longer fit side by side.
+     The requirement is computed from the icon and the text widths — never from
+     the row's current layout — so the two states cannot chase each other. */
+  const statsRef = useRef<HTMLDivElement>(null);
+  const [stacked, setStacked] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = statsRef.current;
+    if (!el) return;
+    const cols = Array.from(el.children) as HTMLElement[];
+    if (cols.length === 0) return;
+    const gap = parseFloat(getComputedStyle(el).columnGap || "0") || 0;
+    // `el` is the flex-1 lane, so its clientWidth is already the space left
+    // over once the trailing slot has taken its share.
+    const available = el.clientWidth;
+    if (available <= 0) return;
+
+    let required = gap * (cols.length - 1);
+    for (const col of cols) {
+      const icon = col.querySelector<HTMLElement>(".data-col-icon");
+      const text = col.querySelector<HTMLElement>(".data-col-text");
+      required += (icon?.offsetWidth ?? 0) + 3 + contentWidth(text);
+    }
+    const next = required > available + 1;
+    if (next !== stacked) setStacked(next);
+  });
 
   const renderCell = (k: VideoFieldKey, key: string) => {
     const color = fieldColor(k, sortField, highlightField);
-    const width = minWidthFor(k, mode);
+    const i = metrics.iconSize;
     switch (k) {
       case "view":
-        return <DataColumn key={key} mode={mode} minWidth={width} icon={<Play size={iconSize} />}
+        return <DataColumn key={key} stacked={stacked} icon={<Play size={i} />}
           text={v.view == null ? "" : formatCount(v.view)} color={color} growth={growth.view[period]} />;
       case "like":
-        return <DataColumn key={key} mode={mode} minWidth={width} icon={<ThumbUp size={iconSize} />}
+        return <DataColumn key={key} stacked={stacked} icon={<ThumbUp size={i} />}
           text={v.like == null ? "" : formatCount(v.like)} color={color} growth={growth.like[period]} />;
       case "coin":
-        return <DataColumn key={key} mode={mode} minWidth={width} icon={<Coin size={iconSize} />}
+        return <DataColumn key={key} stacked={stacked} icon={<Coin size={i} />}
           text={v.coin == null ? "" : formatCount(v.coin)} color={color} growth={growth.coin[period]} />;
+      case "danmaku":
+        return <DataColumn key={key} stacked={stacked} icon={<Danmaku size={i} />}
+          text={v.danmaku == null ? "" : formatCount(v.danmaku)} color={color} growth={growth.danmaku[period]} />;
+      case "reply":
+        return <DataColumn key={key} stacked={stacked} icon={<Comment size={i} />}
+          text={v.reply == null ? "" : formatCount(v.reply)} color={color} growth={growth.reply[period]} />;
       case "online":
-        return <DataColumn key={key} mode={mode} minWidth={width} icon={<Eye size={iconSize} />}
+        return <DataColumn key={key} stacked={stacked} icon={<Eye size={i} />}
           text={v.online ? v.online.displayText : ""} color={color} growth={null} />;
       default:
         // 投稿时间 carries no growth pill — it is not a counter.
-        return <DataColumn key={key} mode={mode} minWidth={width} icon={<Clock size={iconSize} />}
+        return <DataColumn key={key} stacked={stacked} icon={<Clock size={i} />}
           text={`${formatAgo(v.pubdate)}前`} color={color} growth={null} />;
     }
   };
@@ -285,17 +334,17 @@ function VideoRow({ v, mode, statsColumns, trailing, growth, sortField, highligh
   return (
     <div
       className="flex rounded-lg cursor-pointer transition-colors"
-      style={{ gap: style.gap, padding: style.padding, alignItems: "flex-start" }}
+      style={{ gap: metrics.gap, padding: metrics.padding, alignItems: "flex-start" }}
       onMouseEnter={(e) => (e.currentTarget.style.background = "var(--hover)")}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
       onClick={() => void openUrl(videoUrl(v.bvid))}
       title="点击打开视频"
     >
       <img
-        src={coverUrl(v.cover, style.ratio)}
+        src={coverUrl(v.cover, "16:9")}
         alt=""
         className="rounded-md object-cover flex-none self-start"
-        style={{ width: style.coverW, height: style.coverH, background: "var(--surface-2)", flexShrink: 0 }}
+        style={{ width: metrics.coverW, height: metrics.coverH, background: "var(--surface-2)", flexShrink: 0 }}
         draggable={false}
         referrerPolicy="no-referrer"
       />
@@ -303,18 +352,21 @@ function VideoRow({ v, mode, statsColumns, trailing, growth, sortField, highligh
         <div className="text-[12.5px] font-medium leading-snug" style={{ color: "var(--text)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
           {v.title}
         </div>
-        {/* Stats flow on the left; 固定到最右 owns the row's trailing edge. */}
-        <div className="flex items-start" style={{ gap: style.sepGap, marginTop: 4 }}>
+        {/* The metrics share the whole line between the first field and the
+            trailing slot, so they spread out instead of bunching on the left. */}
+        <div className="flex items-start" style={{ gap: metrics.sepGap, marginTop: 4 }}>
           {statsColumns.length > 0 && (
             <div
-              className={`flex items-start${mode === "narrow" ? " is-narrow" : ""}`}
-              style={{ gap: style.colGap, minWidth: 0 }}
+              ref={statsRef}
+              className="flex items-start flex-1 min-w-0"
+              style={{ gap: metrics.colGap }}
             >
               {statsColumns.map((k) => renderCell(k, k))}
             </div>
           )}
-          <span className="flex-1" />
-          {trailing && <div className="video-trailing">{renderCell(trailing, "trailing")}</div>}
+          <div className="video-trailing flex-none" style={{ minWidth: 0 }}>
+            {trailing ? renderCell(trailing, "trailing") : null}
+          </div>
         </div>
       </div>
     </div>
@@ -322,20 +374,22 @@ function VideoRow({ v, mode, statsColumns, trailing, growth, sortField, highligh
 }
 
 /**
- * One metric: icon + value on top, growth pill centered underneath. The pill is
- * its own child of the column, so it always lines up with the number above it.
+ * One metric: icon + value on top, growth pill centered underneath.
+ *
+ * The lane is `flex: 1 1 auto` with `min-width: max-content` — it takes an equal
+ * share of the free width so the row spreads evenly, but it is always at least
+ * as wide as its own formatted text, so 9 / 999 / 1.2万 / 9999万 are measured by
+ * CSS rather than guessed. Nothing is ever ellipsised.
  */
-function DataColumn({ mode, minWidth, icon, text, color, growth }: {
-  mode: RowMode;
-  minWidth?: number;
+function DataColumn({ stacked, icon, text, color, growth }: {
+  stacked: boolean;
   icon: React.ReactNode;
   text: string;
   color?: string;
   growth: number | null;
 }) {
-  const stacked = mode === "narrow";
   return (
-    <span className="data-col" style={{ minWidth, color: color ?? "var(--text-2)" }}>
+    <span className="data-col" style={{ color: color ?? "var(--text-2)" }}>
       <span className={`data-col-value${stacked ? " stacked" : ""}`} title={text || undefined}>
         <span className="data-col-icon">{icon}</span>
         <span className="data-col-text">{text}</span>

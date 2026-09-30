@@ -8,6 +8,7 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { spaceUrl } from "../../services/bilibili/endpoints";
 import { formatCount } from "../../utils/format";
 import { useCachedAsset } from "../../utils/useCachedAsset";
+import { assetImgHandlers } from "../../utils/assetCache";
 import { useStatsGrowth } from "../../queries/statsGrowth";
 import { EMPTY_GROWTH, type StatsGrowthMap } from "../../utils/growth";
 import type {
@@ -16,7 +17,12 @@ import type {
   UserProfile,
   UserStats,
 } from "../../services/bilibili/types";
-import type { FieldVisibility } from "../../types/settings";
+import {
+  STAT_GROWTH_KEY,
+  STAT_ORDER,
+  type FieldVisibility,
+  type StatKey,
+} from "../../types/settings";
 import { Upload } from "../../components/ui/Icons";
 import { LEVEL_SVGS } from "../../components/ui/levelSvgs";
 import { certSvg, isOrgRole } from "../../components/ui/certSvgs";
@@ -61,8 +67,16 @@ export interface ProfileAssets {
   decoration?: string;
 }
 
-/** Wraps one element so the settings preview can make it a click target. */
-export type ZoneRenderer = (field: keyof FieldVisibility, node: ReactNode) => ReactNode;
+/**
+ * Wraps one element so the settings preview can make it a click target.
+ * `style` lets a zone position itself (the banner fills the hero, the avatar
+ * frame overlays the avatar) while still being the element's own click area.
+ */
+export type ZoneRenderer = (
+  field: keyof FieldVisibility,
+  node: ReactNode,
+  style?: CSSProperties,
+) => ReactNode;
 
 export interface ProfileCardViewProps {
   mid: number;
@@ -83,8 +97,8 @@ export interface ProfileCardViewProps {
 }
 
 /**
- * The one and only profile card layout. The main page and 设置 → 用户名片 both
- * render this component, so the preview can never drift from the real card.
+ * The one and only profile card layout. The main page and both settings
+ * previews render this component, so a preview can never drift from the card.
  */
 export function ProfileCardView({
   mid,
@@ -104,13 +118,37 @@ export function ProfileCardView({
   const storePeriod = useSettingsStore((s) => s.global.growthPeriod);
   const period = periodProp ?? storePeriod;
   const open = onOpen ?? ((url: string) => void openUrl(url));
-  // In preview mode an element is always rendered; `zone` dims the disabled ones.
-  const shown = (f: keyof FieldVisibility) => preview || fields[f];
-  const z = (f: keyof FieldVisibility, node: ReactNode): ReactNode =>
-    preview && zone ? zone(f, node) : node;
 
-  const stackSize = fields.pendant && assets.pendant ? PENDANT : AVATAR + 20;
+  // In preview an element is always rendered; `zone` dims the disabled ones.
+  const shown = (f: keyof FieldVisibility) => preview || fields[f];
+  const z = (f: keyof FieldVisibility, node: ReactNode, style?: CSSProperties): ReactNode =>
+    preview && zone ? zone(f, node, style) : node;
+
+  const stackSize = shown("pendant") && (assets.pendant || preview) ? PENDANT : AVATAR + 20;
   const inset = boltInset(stackSize);
+
+  /* The hero's own geometry is fixed: nothing here depends on whether the
+     decoration exists, so showing or hiding it can never resize the banner,
+     move the avatar or change the card's height. */
+  const HERO_PAD_TOP = 28;
+
+  const bannerLayer = assets.banner ? (
+    <div className="absolute inset-0">
+      <img src={assets.banner} alt="" className="w-full h-full object-cover" style={{ objectPosition: "center 35%" }} draggable={false} {...assetImgHandlers()} />
+      <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, color-mix(in srgb, var(--bg) 6%, transparent) 30%, color-mix(in srgb, var(--bg) 82%, transparent) 100%)" }} />
+    </div>
+  ) : (
+    <div className="absolute inset-0" style={{ background: "var(--accent-soft)" }} />
+  );
+
+  const pendantZoneStyle: CSSProperties = {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    transform: "translate(-50%, -50%)",
+    display: "block",
+    zIndex: 4,
+  };
 
   return (
     <section
@@ -119,64 +157,70 @@ export function ProfileCardView({
     >
       {/* ===== ProfileHero (Banner background) ===== */}
       <div className="relative">
-        {/* The banner layer is never wrapped by a preview zone: it needs the
-            hero itself as its containing block, so the preview adds a separate
-            click surface on top of it instead. */}
-        {shown("banner") && (assets.banner ? (
-          <div className="absolute inset-0">
-            <img src={assets.banner} alt="" className="w-full h-full object-cover" style={{ objectPosition: "center 35%" }} draggable={false} />
-            <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, color-mix(in srgb, var(--bg) 6%, transparent) 30%, color-mix(in srgb, var(--bg) 82%, transparent) 100%)" }} />
-          </div>
-        ) : (
-          <div className="absolute inset-0" style={{ background: "var(--accent-soft)" }} />
-        ))}
-        {preview && zone && (
-          <div className="absolute inset-0" style={{ zIndex: 1 }}>
-            {zone("banner", <span className="absolute inset-0" />)}
-          </div>
-        )}
+        {preview && zone
+          ? zone("banner", bannerLayer, { position: "absolute", inset: 0, display: "block" })
+          : shown("banner") ? bannerLayer : null}
 
         {/* 装扮编号 — Profile Hero 的右上角，永不作为可点击入口。 */}
         {shown("decoration") && (decoration || preview) && (
           <div className="absolute" style={{ top: 4, right: 8, zIndex: 6 }}>
-            {z("decoration", decoration
-              ? <Ornament decoration={decoration} src={assets.decoration} />
-              : <span className="ornament-placeholder" />)}
+            {z(
+              "decoration",
+              decoration
+                ? <Ornament decoration={decoration} src={assets.decoration} />
+                : <span className="ornament-placeholder" />,
+            )}
           </div>
         )}
 
         <div
           className="relative px-3 pb-2"
-          style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", alignItems: "end", columnGap: 10, zIndex: 2, paddingTop: shown("decoration") && (decoration || preview) ? 34 : 28 }}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "auto minmax(0, 1fr)",
+            alignItems: "end",
+            columnGap: 10,
+            zIndex: 2,
+            paddingTop: HERO_PAD_TOP,
+          }}
         >
           {/* Left: avatar stack + level */}
           {shown("avatar") && (
             <div className="flex flex-col items-center flex-none" style={{ overflow: "visible" }}>
               <div className="relative" style={{ width: stackSize, height: stackSize, overflow: "visible" }}>
-                <button className="absolute inset-0 cursor-pointer flex items-center justify-center" onClick={() => open(spaceUrl(mid))} title="打开主页">
-                  {/* AVATAR_LAYER (1×) — the only clipped layer */}
-                  <img src={assets.face} alt=""
-                    className="rounded-full object-cover absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-                    style={{ width: AVATAR, height: AVATAR, background: "var(--surface-2)", outline: "2px solid var(--bg)" }}
-                    draggable={false} />
-                  {/* PENDENT_LAYER — the ring must wrap the avatar, never clip it */}
-                  {shown("pendant") && assets.pendant && (
+                {z(
+                  "avatar",
+                  <button className="absolute inset-0 cursor-pointer flex items-center justify-center" onClick={() => open(spaceUrl(mid))} title="打开主页">
+                    <img src={assets.face} alt=""
+                      className="rounded-full object-cover absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                      style={{ width: AVATAR, height: AVATAR, background: "var(--surface-2)", outline: "2px solid var(--bg)" }}
+                      draggable={false} {...assetImgHandlers()} />
+                  </button>,
+                  { position: "absolute", inset: 0, display: "block" },
+                )}
+
+                {/* PENDENT_LAYER — the ring must wrap the avatar, never clip it */}
+                {shown("pendant") && (assets.pendant || preview) && z(
+                  "pendant",
+                  assets.pendant ? (
                     <img src={assets.pendant} alt=""
-                      className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 object-contain pointer-events-none"
-                      style={{ width: PENDANT, height: PENDANT }} draggable={false} />
-                  )}
-                  {/* Preview only: keep the frame's slot visible (and clickable)
-                      when there is no artwork yet, at the exact same size. */}
-                  {preview && shown("pendant") && !assets.pendant && (
-                    <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full pointer-events-none"
+                      className="pointer-events-none object-contain"
+                      style={{ width: PENDANT, height: PENDANT }} draggable={false} {...assetImgHandlers()} />
+                  ) : (
+                    /* Preview keeps the frame's exact slot visible and clickable. */
+                    <span className="block rounded-full"
                       style={{ width: PENDANT, height: PENDANT, border: "2px dashed var(--accent-ring)" }} />
-                  )}
-                </button>
-                {shown("official") && profile.official && (
-                  <CertIcon role={profile.official.role} title={profile.official.title} inset={inset} />
+                  ),
+                  pendantZoneStyle,
+                )}
+
+                {shown("official") && profile.official && z(
+                  "official",
+                  <CertIcon role={profile.official.role} title={profile.official.title} inset={inset} />,
+                  { position: "absolute", right: inset, bottom: inset, width: BOLT, height: BOLT, display: "block", zIndex: 5 },
                 )}
               </div>
-              {shown("level") && <LevelIcon profile={profile} />}
+              {shown("level") && z("level", <LevelIcon profile={profile} />)}
             </div>
           )}
 
@@ -184,7 +228,8 @@ export function ProfileCardView({
           <div className="min-w-0" style={{ paddingBottom: 7 }}>
             {/* row 1: name block · sex · vip */}
             <div className="flex items-center" style={{ gap: 4 }}>
-              {shown("name") && (
+              {shown("name") && z(
+                "name",
                 remark ? (
                   <div className="min-w-0 flex flex-col justify-center" style={{ lineHeight: 1.15 }}>
                     <button className="block truncate text-left font-semibold text-[14px] cursor-pointer hover:underline"
@@ -204,17 +249,21 @@ export function ProfileCardView({
                     onClick={() => open(spaceUrl(mid))}>
                     {profile.name}
                   </button>
-                )
+                ),
               )}
               {shown("sex") && profile.sex && z("sex", <SexMark sex={profile.sex} />)}
               {shown("vip") && profile.isVip && z("vip", <VipLabel profile={profile} />)}
             </div>
 
-            {/* row 2: UID · fans medal (VIP never lives here) */}
-            {(shown("uid") || (shown("fansMedal") && profile.fansMedal)) && (
+            {/* row 2: UID · fans medal · nameplate */}
+            {(shown("uid") || (shown("fansMedal") && profile.fansMedal) || (shown("nameplate") && (profile.nameplateUrl || profile.nameplateName))) && (
               <div className="flex items-center" style={{ gap: 5, marginTop: 4 }}>
                 {shown("uid") && z("uid", <span className="text-[11px] leading-none" style={{ color: "var(--text-2)" }}>UID {mid}</span>)}
                 {shown("fansMedal") && profile.fansMedal && z("fansMedal", <FanMedal medal={profile.fansMedal} />)}
+                {shown("nameplate") && (profile.nameplateUrl || profile.nameplateName) && z(
+                  "nameplate",
+                  <Nameplate profile={profile} />,
+                )}
               </div>
             )}
 
@@ -247,8 +296,6 @@ export function ProfileCardView({
   );
 }
 
-type StatKey = "following" | "follower" | "likes" | "totalViews" | "videoCount";
-
 const STAT_LABELS: Record<StatKey, string> = {
   following: "关注",
   follower: "粉丝",
@@ -257,8 +304,12 @@ const STAT_LABELS: Record<StatKey, string> = {
   videoCount: "投稿",
 };
 
-const STAT_ORDER: StatKey[] = ["following", "follower", "likes", "totalViews", "videoCount"];
-
+/**
+ * The profile counters. Hiding one removes its whole column (name, value and
+ * growth) so the remaining columns redistribute evenly across the row instead
+ * of leaving a gap. Each column additionally owns its growth pill: the pill is
+ * its own preview zone, so 显示字段 and 显示增长 are independent choices.
+ */
 function ProfileStats({
   fields, stats, growth, period, primaryMid, mid, preview, zone, shown,
 }: {
@@ -273,20 +324,26 @@ function ProfileStats({
   shown: (f: keyof FieldVisibility) => boolean;
 }) {
   const open = (url: string) => void openUrl(url);
-  const growthSwitch: keyof FieldVisibility =
+
+  // The period switch is the master; each column's own switch refines it.
+  const periodKey: keyof FieldVisibility =
     period === "day" ? "growthDay" : period === "week" ? "growthWeek" : "growthMonth";
-  const growthOn = shown(growthSwitch);
+  const periodOn = shown(periodKey);
+
   const visible = preview ? STAT_ORDER : STAT_ORDER.filter((k) => fields[k]);
 
   return (
     <div className="flex items-center gap-2 px-3" style={{ background: "color-mix(in srgb, var(--surface-2) 60%, transparent)", paddingTop: 3, paddingBottom: 2 }}>
-      {visible.length > 0 && (
-        /* Columns are re-derived from what is on, so hiding one never leaves a gap. */
+      {visible.length > 0 ? (
         <div className="flex-1 grid" style={{ gridTemplateColumns: `repeat(${visible.length}, minmax(0, 1fr))` }}>
           {visible.map((k) => {
             const g = growth[k] ?? EMPTY_GROWTH;
-            const delta = growthOn ? (period === "day" ? g.day : period === "week" ? g.week : g.month) : null;
-            const cell = <StatCell label={STAT_LABELS[k]} value={stats?.[k] ?? null} delta={delta ?? null} />;
+            const delta = periodOn && shown(STAT_GROWTH_KEY[k])
+              ? (period === "day" ? g.day : period === "week" ? g.week : g.month)
+              : null;
+            const cell = (
+              <StatCell label={STAT_LABELS[k]} value={stats?.[k] ?? null} delta={delta ?? null} />
+            );
             return (
               <span key={k} style={{ display: "contents" }}>
                 {preview && zone ? zone(k, cell) : cell}
@@ -294,15 +351,17 @@ function ProfileStats({
             );
           })}
         </div>
+      ) : (
+        <span className="flex-1" />
       )}
-      {visible.length === 0 && <span className="flex-1" />}
+      {/* Low-weight entry point: icon only, hairline outline, accent on hover. */}
       <button
-        className="btn-primary btn text-[11px] px-2 py-1 rounded-md flex-none"
+        className="upload-btn flex-none"
         style={{ visibility: primaryMid === mid ? "visible" : "hidden" }}
         onClick={() => open("https://member.bilibili.com/platform/upload-manager/article")}
-        title="上传投稿"
+        title="投稿"
       >
-        <Upload size={12} /> 投稿
+        <Upload size={12} />
       </button>
     </div>
   );
@@ -310,19 +369,12 @@ function ProfileStats({
 
 /**
  * Stats cell, three stacked rows: label / value / growth pill.
- * A missing value renders as an empty slot — never "—" or "统计中".
+ * The growth pill is its own preview zone when previewing, so it can be turned
+ * off independently of the column. Missing values render as an empty slot.
  */
-function StatCell({
-  label,
-  value,
-  delta,
-}: {
-  label: string;
-  value: number | null;
-  delta: number | null;
-}) {
+function StatCell({ label, value, delta }: { label: string; value: number | null; delta: number | null }) {
   return (
-    <span className="flex flex-col items-center" style={{ lineHeight: 1.1, minWidth: 0 }}>
+    <span className="flex flex-col items-center justify-center" style={{ lineHeight: 1.1, minWidth: 0, textAlign: "center" }}>
       <span className="text-[9.5px] whitespace-nowrap" style={{ color: "var(--text-3)" }}>{label}</span>
       <span className="text-[15px] font-semibold whitespace-nowrap" style={{ color: "var(--text)" }} title={value != null ? String(value) : undefined}>
         {value == null ? "" : formatCount(value)}
@@ -369,12 +421,13 @@ function CertIcon({ role, title, inset }: { role: number; title: string; inset: 
     if (r) setAnchor({ x: r.left + r.width / 2, y: r.top });
   };
 
+  void inset;
   return (
     <>
+      {/* Positioned by the caller so the preview can use it as its own zone. */}
       <span
         ref={ref}
-        className="absolute cursor-help"
-        style={{ right: inset, bottom: inset, width: BOLT, height: BOLT, filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.22))" }}
+        className="cursor-help block w-full h-full"
         onMouseEnter={show}
         onMouseLeave={() => setAnchor(null)}
         // Real Bilibili badge artwork: white ring + coloured disc + white bolt.
@@ -411,7 +464,7 @@ function SexMark({ sex }: { sex: string }) {
 
 function VipLabel({ profile }: { profile: UserProfile }) {
   if (profile.vipLabelImg) {
-    return <img src={profile.vipLabelImg} alt="" height={15} style={{ height: 15 }} draggable={false} referrerPolicy="no-referrer" />;
+    return <img src={profile.vipLabelImg} alt="" height={15} style={{ height: 15 }} draggable={false} referrerPolicy="no-referrer" {...assetImgHandlers()} />;
   }
   return (
     <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-[1px] rounded-md flex-none" style={{ background: "var(--accent)", color: "#fff" }}>
@@ -420,13 +473,40 @@ function VipLabel({ profile }: { profile: UserProfile }) {
   );
 }
 
+/** 勋章 / Nameplate — the small badge Bilibili shows beside the username. */
+function Nameplate({ profile }: { profile: UserProfile }) {
+  if (profile.nameplateUrl) {
+    return (
+      <img
+        src={profile.nameplateUrl}
+        alt=""
+        className="nameplate-img flex-none"
+        title={profile.nameplateName}
+        draggable={false}
+        referrerPolicy="no-referrer"
+        {...assetImgHandlers()}
+      />
+    );
+  }
+  return (
+    <span className="text-[10px] px-1.5 py-[1px] rounded flex-none" style={{ background: "var(--surface-2)", color: "var(--text-2)", border: "1px solid var(--line)" }}>
+      {profile.nameplateName}
+    </span>
+  );
+}
+
 /**
  * 粉丝牌 — MedalWall's own design, not an approximation.
  *
  * DOM:  FanMedal › MedalName + LevelCircle
- * The name and the level number deliberately use different fonts and sizes,
- * and every colour (including its alpha) comes straight from
+ * The name and the level digit deliberately use different fonts, and every
+ * colour (including its alpha) comes straight from
  * `uinfo_medal.v2_medal_color_*`. There is no per-level colour table.
+ *
+ * Sizing follows Bilibili's technique — a large font scaled down with `zoom`
+ * rather than a small font — which is what keeps the glyphs from looking
+ * cramped. `zoom` shrinks the layout box with the glyphs, so the name is never
+ * clipped by its own transform.
  */
 function FanMedal({ medal }: { medal: FansMedalData }) {
   const start = medal.colorStart ?? "var(--accent)";
@@ -460,8 +540,9 @@ function FanMedal({ medal }: { medal: FansMedalData }) {
 const GUARD_NAME: Record<number, string> = { 1: "总督", 2: "提督", 3: "舰长" };
 
 /**
- * 动态装扮 — `decoration_card`. The number is an *overlay* on the artwork's
- * reserved area, never a caption underneath it, and the whole thing is inert.
+ * 动态装扮 — `decoration_card`. Image and number are ONE unit: the number is
+ * overlaid inside the artwork's own reserved plate, never parked beside it.
+ * The whole thing stays inert.
  */
 function Ornament({ decoration, src }: { decoration: DynamicDecoration; src?: string }) {
   const url = decoration.imageEnhance || src || decoration.cardUrl;
@@ -470,7 +551,7 @@ function Ornament({ decoration, src }: { decoration: DynamicDecoration; src?: st
   if (!url) return null;
   return (
     <div className="ornament" title={decoration.name}>
-      <img src={url} alt="" className="ornament-img" draggable={false} referrerPolicy="no-referrer" />
+      <img src={url} alt="" className="ornament-img" draggable={false} referrerPolicy="no-referrer" {...assetImgHandlers()} />
       {label && <span className="ornament-num" style={numStyle}>{label}</span>}
     </div>
   );
@@ -493,9 +574,6 @@ function ornamentNumberStyle(d: DynamicDecoration): CSSProperties {
   if (d.color) return { color: d.color };
   return { color: "#fff" };
 }
-
-/** Level badge, reused by the collapsed header. */
-export { LevelIcon, SexMark, VipLabel };
 
 export function ProfileCard({ mid }: { mid: number }) {
   const selectedMid = useUIStore((s) => s.selectedMid);
@@ -570,3 +648,5 @@ function ProfileHandle({ collapsed, onToggle }: { collapsed: boolean; onToggle: 
     </button>
   );
 }
+
+export { LevelIcon, SexMark, VipLabel };

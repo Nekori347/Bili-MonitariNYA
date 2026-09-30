@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { BilibiliAdapter } from "../services/bilibili/adapter";
+import { BilibiliAdapter, isDefaultBannerUrl } from "../services/bilibili/adapter";
 import { useSubscriptions } from "./subscriptions";
 import { profileKeys } from "./profile";
 import { videoKeys } from "./videos";
@@ -14,6 +14,7 @@ import {
 } from "../services/database/usersCache";
 import { insertStatsSnapshot } from "../services/database/statsSnapshots";
 import { saveVideos } from "../services/database/videos";
+import { markUnread, type Subscription } from "../services/database/subscriptions";
 import { computeStatsGrowth } from "../utils/growth";
 
 /* Startup stage C: once the window is usable and the cached dashboard is on
@@ -39,13 +40,19 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * Refresh one UP without React Query's cache in the loop, then seed that cache
  * so switching to the UP afterwards shows the new numbers immediately.
  */
-async function refreshUp(mid: number, limit: number, qc: QueryClient): Promise<void> {
+async function refreshUp(sub: Subscription, limit: number, qc: QueryClient): Promise<void> {
+  const mid = sub.mid;
   const store = useDashboardStore.getState();
 
   const profile = await BilibiliAdapter.getUserProfile(mid).catch(() => null);
   if (profile) {
     const old = store.snapshots[mid]?.profile;
-    if (!profile.topPhoto && old?.topPhoto) profile.topPhoto = old.topPhoto;
+    // Same rule as the foreground query: a risk-controlled fallback to the card
+    // endpoint only ever yields Bilibili's stock artwork, so it must not
+    // replace a custom banner we already have.
+    if (old?.topPhoto && (!profile.topPhoto || isDefaultBannerUrl(profile.topPhoto))) {
+      profile.topPhoto = old.topPhoto;
+    }
     if (!profile.pendantUrl && old?.pendantUrl) profile.pendantUrl = old.pendantUrl;
     if (!profile.fansMedal && old?.fansMedal) profile.fansMedal = old.fansMedal;
     store.patch(mid, { profile });
@@ -69,6 +76,13 @@ async function refreshUp(mid: number, limit: number, qc: QueryClient): Promise<v
     store.setVideoList(mid, list);
     qc.setQueryData(videoKeys.list(mid, limit), list);
     void saveVideos(mid, list).catch(() => {});
+    // 新投稿检查: a bvid the user has not opened yet raises the pink dot.
+    const latest = list[0].bvid;
+    if (sub.lastSeenLatestBvid && latest && latest !== sub.lastSeenLatestBvid) {
+      void markUnread(mid, true)
+        .then(() => qc.invalidateQueries({ queryKey: ["subscriptions"] }))
+        .catch(() => {});
+    }
   }
 
   const decoration = await BilibiliAdapter.getDynamicDecoration(mid).catch(() => null);
@@ -101,7 +115,7 @@ export function useBackgroundRefresh() {
         if (sub.mid === useUIStore.getState().selectedMid) continue;
         const last = lastRefreshedAt.get(sub.mid) ?? 0;
         if (Date.now() - last < FRESH_MS) continue;
-        await refreshUp(sub.mid, settings.effectiveVideoLimit(sub.mid), qc);
+        await refreshUp(sub, settings.effectiveVideoLimit(sub.mid), qc);
         done += 1;
         if (done < MAX_PER_PASS) await sleep(GAP);
       }

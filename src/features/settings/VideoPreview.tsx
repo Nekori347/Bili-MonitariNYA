@@ -1,12 +1,14 @@
 import { useState } from "react";
 import type { FieldVisibility, VideoFieldKey } from "../../types/settings";
 import { VIDEO_FIELD_LABELS } from "../../types/settings";
-import { Clock, Coin, Eye, Grip, Play, ThumbUp } from "../../components/ui/Icons";
+import { Clock, Coin, Comment, Danmaku, Eye, Grip, Play, ThumbUp } from "../../components/ui/Icons";
 
 const VIS_KEY: Record<VideoFieldKey, keyof FieldVisibility> = {
   view: "videoView",
   like: "videoLike",
   coin: "videoCoin",
+  danmaku: "videoDanmaku",
+  reply: "videoReply",
   online: "videoOnline",
   pubdate: "videoView", // 投稿时间 is always shown
 };
@@ -15,6 +17,8 @@ const SAMPLE: Record<VideoFieldKey, string> = {
   view: "1.2万",
   like: "890",
   coin: "233",
+  danmaku: "156",
+  reply: "42",
   online: "75",
   pubdate: "3天前",
 };
@@ -23,12 +27,16 @@ const SAMPLE_GROWTH: Partial<Record<VideoFieldKey, string>> = {
   view: "+320",
   like: "+18",
   coin: "+4",
+  danmaku: "+9",
+  reply: "+2",
 };
 
 const ICON: Record<VideoFieldKey, React.ReactNode> = {
   view: <Play size={11} />,
   like: <ThumbUp size={11} />,
   coin: <Coin size={11} />,
+  danmaku: <Danmaku size={11} />,
+  reply: <Comment size={11} />,
   online: <Eye size={11} />,
   pubdate: <Clock size={11} />,
 };
@@ -65,7 +73,7 @@ export function VideoPreview({
     onToggle(key, !fields[key]);
   };
 
-  const column = (k: VideoFieldKey, extra?: React.ReactNode) => {
+  const column = (k: VideoFieldKey) => {
     const on = k === "pubdate" ? true : fields[VIS_KEY[k]];
     return (
       <span
@@ -88,7 +96,6 @@ export function VideoPreview({
           </span>
         </span>
         <span className="pz-tag">{on ? "✓" : "✕"} {VIDEO_FIELD_LABELS[k]}</span>
-        {extra}
       </span>
     );
   };
@@ -103,7 +110,7 @@ export function VideoPreview({
           <div className="flex items-start gap-1.5 mt-1">
             <div className="flex items-start gap-1 min-w-0">{flow.map((k) => column(k))}</div>
             <span className="flex-1" />
-            {trailing && column(trailing, <span className="pz-pin">最右</span>)}
+            {trailing && column(trailing)}
           </div>
         </div>
       </div>

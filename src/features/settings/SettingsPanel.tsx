@@ -3,8 +3,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useUIStore } from "../../store/uiStore";
 import { useSettingsStore } from "../../store/settingsStore";
-import { useSubscriptions, useRemarkEditor } from "../../queries/subscriptions";
+import {
+  useAddSubscriptionFlow,
+  useRemarkEditor,
+  useRemoveSubscriptions,
+  useSaveSubscriptionOrder,
+  useSubscriptions,
+} from "../../queries/subscriptions";
+import { ConfirmButton } from "../../components/ui/ConfirmButton";
+import { invalidateUserAssets } from "../../utils/assetCache";
 import { setAlwaysOnTop } from "../../utils/window";
+import type { Subscription } from "../../services/database/subscriptions";
 import {
   DEFAULT_OPACITY,
   DEFAULT_SETTINGS,
@@ -25,10 +34,13 @@ import {
   APP_AUTHOR,
   APP_DISPLAY_NAME,
   AUTHOR_BILIBILI_URL,
+  GITHUB_OWNER,
+  GITHUB_OWNER_URL,
   GITHUB_REPO_URL,
+  HAS_REPO,
   LICENSE_NAME,
 } from "../../config/app";
-import { ChevronDown, ExternalLink, Undo, XIcon } from "../../components/ui/Icons";
+import { ChevronDown, ExternalLink, Plus, Undo, XIcon } from "../../components/ui/Icons";
 
 type Category = "appearance" | "subs" | "card" | "video" | "data" | "system";
 type Mode = "global" | "perUser";
@@ -241,6 +253,13 @@ function GlobalBody({ category, tab }: { category: Category; tab: string }) {
         <Sections>
           <Section title="侧栏" open>
             <Row label={`侧栏宽度（${global.sidebarWidth}px）`}>
+              <button
+                className="reset-btn"
+                title="恢复默认侧栏宽度"
+                onClick={() => updateGlobal({ sidebarWidth: DEFAULT_SETTINGS.sidebarWidth })}
+              >
+                <Undo size={13} />
+              </button>
               <input type="range" min={140} max={260} value={global.sidebarWidth}
                 onChange={(e) => updateGlobal({ sidebarWidth: Number(e.target.value) })} className="w-44" />
             </Row>
@@ -261,19 +280,7 @@ function GlobalBody({ category, tab }: { category: Category; tab: string }) {
 
     case "subs":
       return tab === "订阅列表" ? (
-        <Sections>
-          <Section title="已订阅的 UP 主" open>
-            <div className="text-[11px] mb-2" style={{ color: "var(--text-3)" }}>
-              备注会立即显示在侧栏和名片上；拖动侧栏头像可以调整顺序。
-            </div>
-            <div className="flex flex-col gap-1">
-              {(subs ?? []).map((s) => (
-                <RemarkRow key={s.mid} mid={s.mid} name={s.name} remark={s.remark ?? ""} />
-              ))}
-              {(subs ?? []).length === 0 && <div className="text-[12px]" style={{ color: "var(--text-3)" }}>还没有订阅</div>}
-            </div>
-          </Section>
-        </Sections>
+        <SubscriptionManager subs={subs ?? []} />
       ) : (
         <Sections>
           <Section title="默认视频条数" open>
@@ -301,8 +308,9 @@ function GlobalBody({ category, tab }: { category: Category; tab: string }) {
             <div className="text-[12px] mb-2" style={{ color: "var(--text-2)" }}>
               点击预览中的项目，可以选择它们是否显示在名片中。
             </div>
-            {/* Global defaults only — an individual UP's overrides never leak in. */}
-            <PreviewCard mid={selectedMid} fields={global.fields} onToggle={updateField} />
+            {/* Global defaults only — an individual UP's overrides never leak in,
+                and the sample identity is always the neutral one. */}
+            <PreviewCard mid={selectedMid} fields={global.fields} onToggle={updateField} neutral />
           </Section>
         </Sections>
       );
@@ -371,14 +379,14 @@ function GlobalBody({ category, tab }: { category: Category; tab: string }) {
               <Switch on={global.fields.growthDay} onToggle={(v) => { updateField("growthDay", v); updateField("growthWeek", v); updateField("growthMonth", v); }} />
             </Row>
             <div className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>
-              增长数据由本程序自己记录的历史快照计算，历史不足时会留空。
+              增长数据来自本程序自己记录的历史，历史不足时会留空。
             </div>
           </Section>
           <Section title="数据更新" open>
             <div className="text-[12px] leading-relaxed" style={{ color: "var(--text-2)" }}>
               正在查看的 UP 主更新最勤：资料约 15 分钟一次，播放 / 点赞 / 投币约 5 分钟一次，
               在线人数约 1 分钟一次。<br />
-              其它 UP 主在后台逐个更新，不会同时发出大量请求。<br />
+              其它已订阅的 UP 主会在后台依次更新。<br />
               窗口收进托盘后会自动放慢更新，并暂停更新在线人数。
             </div>
           </Section>
@@ -392,12 +400,20 @@ function GlobalBody({ category, tab }: { category: Category; tab: string }) {
             <div className="flex flex-col gap-1">
               {(subs ?? []).map((s) => (
                 <Row key={s.mid} label={s.remark || s.name || `UID ${s.mid}`}>
-                  <button
-                    className="btn text-[11px] px-2 py-1"
-                    onClick={() => void import("@tauri-apps/api/core").then(({ invoke }) => invoke("clear_user_cache", { mid: String(s.mid) }))}
-                  >
-                    清除这个 UP 的缓存
-                  </button>
+                  <ConfirmButton
+                    label="清除这个 UP 的缓存"
+                    confirmLabel="确认清除"
+                    tone="danger"
+                    size="sm"
+                    title="删除本机保存的头像、Banner、头像框和装扮图"
+                    onConfirm={async () => {
+                      const { invoke } = await import("@tauri-apps/api/core");
+                      await invoke("clear_user_cache", { mid: String(s.mid) });
+                      // Drop the resolved paths too, so the next mount
+                      // re-downloads instead of pointing at a deleted file.
+                      invalidateUserAssets(s.mid);
+                    }}
+                  />
                 </Row>
               ))}
               {(subs ?? []).length === 0 && <div className="text-[12px]" style={{ color: "var(--text-3)" }}>还没有订阅</div>}
@@ -449,6 +465,10 @@ function PerUserBody({ mid, category }: { mid: number; category: Category }) {
     setPerUser(mid, { ...perUser, fields: next });
   };
 
+  /**
+   * Re-fetch everything for this UP. It never clears a cache first: the current
+   * snapshot stays on screen and the progress line reports the manual refresh.
+   */
   const refreshAll = async () => {
     setRefreshing(true);
     setDone(false);
@@ -491,7 +511,8 @@ function PerUserBody({ mid, category }: { mid: number; category: Category }) {
       <Sections>
         <Section title="这个 UP 的名片显示项" open>
           <InheritNote>没有单独设置的项目会跟随全局默认值。</InheritNote>
-          <PreviewCard mid={mid} fields={effective} onToggle={applyField} />
+          {/* 单个 UP 的预览显示这个 UP 的真实数据，因为它说明的正是“它会变成什么样”。 */}
+          <PreviewCard mid={mid} fields={effective} onToggle={applyField} neutral={false} />
           <OverrideList />
           <button
             className="btn text-xs mt-3"
@@ -562,7 +583,14 @@ function PerUserBody({ mid, category }: { mid: number; category: Category }) {
             立即重新获取这个 UP 主的资料、统计数据、粉丝牌、装扮和最近投稿。当前显示的数据会保留到新数据返回。
           </div>
           <div className="flex items-center gap-2">
-            <button className="btn text-xs" onClick={() => void refreshAll()}>刷新这个 UP 的全部数据</button>
+            <ConfirmButton
+              key={`refresh-${mid}-${category}`}
+              label="刷新这个 UP 的全部数据"
+              confirmLabel="确认刷新"
+              tone="accent"
+              title="重新获取资料、统计、粉丝牌、装扮和最近投稿"
+              onConfirm={refreshAll}
+            />
             {done && <span className="text-[11px]" style={{ color: "#22a06b" }}>已开始刷新</span>}
           </div>
         </Section>
@@ -604,14 +632,25 @@ function AboutSection() {
           </div>
           <div className="flex items-center gap-2">
             <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>GitHub</span>
-            <button className="link-btn" onClick={() => void openUrl(GITHUB_REPO_URL)}>
-              项目仓库 <ExternalLink size={11} />
+            <button className="link-btn" onClick={() => void openUrl(GITHUB_OWNER_URL)}>
+              {GITHUB_OWNER} <ExternalLink size={11} />
             </button>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>许可证</span>
-            <span>{LICENSE_NAME}</span>
-          </div>
+          {/* Only rendered once a repository actually exists — never a dead link. */}
+          {HAS_REPO && (
+            <div className="flex items-center gap-2">
+              <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>项目仓库</span>
+              <button className="link-btn" onClick={() => void openUrl(GITHUB_REPO_URL)}>
+                项目仓库 <ExternalLink size={11} />
+              </button>
+            </div>
+          )}
+          {LICENSE_NAME && (
+            <div className="flex items-center gap-2">
+              <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>许可证</span>
+              <span>{LICENSE_NAME}</span>
+            </div>
+          )}
         </div>
       </Section>
     </Sections>
@@ -619,17 +658,128 @@ function AboutSection() {
 }
 
 /* ------------------------------------------------------------------ *
- * 备注行（立即生效）
+ * 订阅管理（全局设置）
+ *
+ * 这里管理的是订阅本身：添加 / 删除 / 排序 / 备注。它复用主界面同一套
+ * service（`useAddSubscriptionFlow` / `useRemoveSubscriptions` /
+ * `useSaveSubscriptionOrder`），没有第二套实现；删除也用应用自己的形变二次
+ * 确认，绝不弹浏览器对话框。
  * ------------------------------------------------------------------ */
 
-function RemarkRow({ mid, name, remark }: { mid: number; name: string; remark: string }) {
-  const editor = useRemarkEditor(mid);
-  const [value, setValue] = useState(remark);
-  useEffect(() => setValue(remark), [remark]);
+function SubscriptionManager({ subs }: { subs: Subscription[] }) {
+  const [input, setInput] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const { add, busy } = useAddSubscriptionFlow();
+  const removeSubs = useRemoveSubscriptions();
+  const saveOrder = useSaveSubscriptionOrder();
+  const videoLimit = useSettingsStore((s) => s.global.videoLimit);
+
+  const submit = async () => {
+    if (!input.trim() || busy) return;
+    setError(null);
+    try {
+      await add(input, videoLimit);
+      setInput("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "添加失败，请检查网络或输入");
+    }
+  };
+
+  const move = (index: number, delta: number) => {
+    const next = index + delta;
+    if (next < 0 || next >= subs.length) return;
+    const order = subs.map((s) => s.mid);
+    const [moved] = order.splice(index, 1);
+    order.splice(next, 0, moved);
+    saveOrder.mutate(order);
+  };
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="w-32 shrink-0 truncate text-[12px]" style={{ color: "var(--text)" }}>{name || `UID ${mid}`}</span>
+    <Sections>
+      <Section title="添加订阅" open>
+        <div className="flex items-center gap-2">
+          <input
+            className="flex-1 min-w-0 text-[12px]"
+            placeholder="B 站主页链接或 UID"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submit();
+            }}
+          />
+          <button className="btn text-xs flex-none" disabled={busy || !input.trim()} onClick={() => void submit()}>
+            <Plus size={13} /> {busy ? "添加中…" : "添加"}
+          </button>
+        </div>
+        {error && <div className="text-[11px] mt-1.5" style={{ color: "#e5484d" }}>{error}</div>}
+      </Section>
+
+      <Section title="已订阅的 UP 主" open>
+        <div className="text-[11px] mb-2" style={{ color: "var(--text-3)" }}>
+          备注会立即显示在侧栏和名片上，不需要保存。
+        </div>
+        <div className="flex flex-col gap-1">
+          {subs.map((s, i) => (
+            <SubRow
+              key={s.mid}
+              sub={s}
+              index={i}
+              total={subs.length}
+              onMove={move}
+              onRemove={() => removeSubs.mutate([s.mid])}
+            />
+          ))}
+          {subs.length === 0 && <div className="text-[12px]" style={{ color: "var(--text-3)" }}>还没有订阅</div>}
+        </div>
+      </Section>
+    </Sections>
+  );
+}
+
+function SubRow({
+  sub,
+  index,
+  total,
+  onMove,
+  onRemove,
+}: {
+  sub: Subscription;
+  index: number;
+  total: number;
+  onMove: (index: number, delta: number) => void;
+  onRemove: () => void;
+}) {
+  const editor = useRemarkEditor(sub.mid);
+  const [value, setValue] = useState(sub.remark ?? "");
+  useEffect(() => setValue(sub.remark ?? ""), [sub.remark]);
+
+  return (
+    <div className="flex items-center gap-2 py-0.5">
+      <div className="flex flex-none flex-col">
+        <button
+          className="order-btn"
+          title="上移"
+          disabled={index === 0}
+          style={index === 0 ? { opacity: 0.3 } : undefined}
+          onClick={() => onMove(index, -1)}
+        >
+          <ChevronDown size={11} style={{ transform: "rotate(180deg)" }} />
+        </button>
+        <button
+          className="order-btn"
+          title="下移"
+          disabled={index === total - 1}
+          style={index === total - 1 ? { opacity: 0.3 } : undefined}
+          onClick={() => onMove(index, 1)}
+        >
+          <ChevronDown size={11} />
+        </button>
+      </div>
+
+      <span className="w-28 shrink-0 truncate text-[12px]" style={{ color: "var(--text)" }} title={sub.name}>
+        {sub.name || `UID ${sub.mid}`}
+      </span>
+
       <input
         className="flex-1 min-w-0 text-[12px]"
         placeholder="备注名（留空则显示原用户名）"
@@ -639,7 +789,19 @@ function RemarkRow({ mid, name, remark }: { mid: number; name: string; remark: s
           editor.set(e.target.value);
         }}
         onBlur={editor.flush}
-        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+      />
+
+      <ConfirmButton
+        label="删除"
+        confirmLabel="确认删除"
+        tone="danger"
+        size="sm"
+        className="flex-none"
+        title="取消订阅这个 UP 主"
+        onConfirm={onRemove}
       />
     </div>
   );

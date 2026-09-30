@@ -41,6 +41,8 @@ export interface VideoStatPatch {
   view: number | null;
   like: number | null;
   coin: number | null;
+  danmaku: number | null;
+  reply: number | null;
   cid: number;
   online: OnlineStats | null;
 }
@@ -66,6 +68,8 @@ const sameVideo = (a: SnapshotVideo, b: SnapshotVideo): boolean =>
   a.view === b.view &&
   a.like === b.like &&
   a.coin === b.coin &&
+  a.danmaku === b.danmaku &&
+  a.reply === b.reply &&
   a.cid === b.cid &&
   a.online?.displayText === b.online?.displayText &&
   a.online?.exactCount === b.online?.exactCount;
@@ -142,6 +146,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         view: v.view ?? old?.view ?? null,
         like: v.like ?? old?.like ?? null,
         coin: v.coin ?? old?.coin ?? null,
+        danmaku: v.danmaku ?? old?.danmaku ?? null,
+        reply: v.reply ?? old?.reply ?? null,
       };
     });
     const unchanged =
@@ -166,6 +172,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         view: r.view ?? v.view,
         like: r.like ?? v.like,
         coin: r.coin ?? v.coin,
+        danmaku: r.danmaku ?? v.danmaku,
+        reply: r.reply ?? v.reply,
         cid: r.cid || v.cid,
         online: r.online === undefined ? v.online : r.online,
       };

@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { ProfileCardView } from "../profile-card/ProfileCard";
 import { useCachedAsset } from "../../utils/useCachedAsset";
 import { useSnapshot } from "../../store/dashboardStore";
@@ -12,25 +12,37 @@ import {
 } from "../../types/settings";
 
 /**
- * Used only when no subscription has been loaded yet, so the layout still has
- * something to draw. It is never the source of a setting's name — every zone is
- * labelled by what it controls (粉丝牌 / 认证 / 大会员 / 等级 …).
+ * A deliberately anonymous identity.
+ *
+ * 全局设置的 Preview 说明的是「这个模板长什么样」，不是「当前 UP 会变成什么
+ * 样」。它必须永远是这一个中性样本：没有真实订阅数据，没有真实用户名、UID、
+ * 认证文案或装扮编号，每个可点区域只由用途名（粉丝牌 / 认证 / 等级 …）标识。
  */
-const DEMO_PROFILE: UserProfile = {
-  mid: 0,
-  name: "示例用户名",
-  face: "/icons/icon.png",
-  sign: "这里显示 UP 主的个人简介",
-  level: 6,
+const NEUTRAL_AVATAR =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">' +
+      '<rect width="72" height="72" fill="#c7ccd6"/>' +
+      '<circle cx="36" cy="27" r="13" fill="#eef0f4"/>' +
+      '<path d="M8 72c0-15.5 12.5-25 28-25s28 9.5 28 25z" fill="#eef0f4"/>' +
+      "</svg>",
+  );
+
+const SIMPLE_USER: UserProfile = {
+  mid: 123456,
+  name: "用户名",
+  face: NEUTRAL_AVATAR,
+  sign: "用户简介",
+  level: 5,
   sex: "男",
   isSeniorMember: false,
   isVip: true,
   vipType: 1,
   vipLabel: "大会员",
-  official: { title: "bilibili 认证示例", type: 0, role: 1 },
+  official: { title: "个人认证", type: 0, role: 1 },
   fansMedal: {
     name: "粉丝牌",
-    level: 21,
+    level: 12,
     // Real v2 values keep their alpha byte — the same shape MedalWall returns.
     colorStart: "#5866C799",
     colorEnd: "#5866C7CC",
@@ -41,55 +53,53 @@ const DEMO_PROFILE: UserProfile = {
   },
 };
 
-const DEMO_STATS: UserStats = {
-  mid: 0,
-  following: 2676,
-  follower: 11000,
-  likes: 431000,
-  totalViews: 3080000,
-  videoCount: 98,
+const SIMPLE_STATS: UserStats = {
+  mid: 123456,
+  following: 1200,
+  follower: 34000,
+  likes: 120000,
+  totalViews: 2400000,
+  videoCount: 56,
 };
 
-const DEMO_GROWTH: StatsGrowthMap = {
+const SIMPLE_GROWTH: StatsGrowthMap = {
   following: { day: 2, week: 11, month: 40 },
   follower: { day: 120, week: 830, month: 3200 },
   likes: { day: 640, week: 4200, month: 16000 },
   totalViews: { day: 2100, week: 13000, month: 52000 },
-  videoCount: { day: 0, week: 1, month: 3 },
-} as StatsGrowthMap;
-
-const EMPTY_GROWTH_MAP: StatsGrowthMap = {
-  following: EMPTY_GROWTH,
-  follower: EMPTY_GROWTH,
-  likes: EMPTY_GROWTH,
-  totalViews: EMPTY_GROWTH,
-  videoCount: EMPTY_GROWTH,
+  videoCount: { day: null, week: 1, month: 3 },
 };
 
 /**
  * 用户名片设置 Preview. It renders the *real* profile card component, so the
  * banner, avatar stack, level, certification, name block, fans medal,
- * decoration and stats all sit exactly where they do on the main page — this
- * page never re-implements the layout.
+ * nameplate, decoration and stats all sit exactly where they do on the main
+ * page — this page never re-implements the layout.
+ *
+ * `neutral` forces the anonymous sample (全局设置永远用它)；单个 UP 的设置则显示
+ * 该 UP 的真实数据，因为它说明的正是「这个 UP 会被改成什么样」。
  */
 export function PreviewCard({
   mid,
   fields,
   onToggle,
+  neutral,
 }: {
   mid: number | null;
   fields: FieldVisibility;
   onToggle: (k: keyof FieldVisibility, v: boolean) => void;
+  neutral: boolean;
 }) {
-  const snapshot = useSnapshot(mid ?? -1);
+  const snapshot = useSnapshot(neutral ? -1 : mid ?? -1);
   const period = useSettingsStore((s) => s.global.growthPeriod);
 
-  const profile = snapshot?.profile ?? DEMO_PROFILE;
-  const stats = snapshot?.stats ?? (snapshot?.profile ? undefined : DEMO_STATS);
-  const decoration = snapshot?.decoration ?? null;
-  const growth = snapshot?.statsGrowth ?? (snapshot?.profile ? EMPTY_GROWTH_MAP : DEMO_GROWTH);
+  const live = neutral ? undefined : snapshot;
+  const profile = live?.profile ?? SIMPLE_USER;
+  const stats = live?.stats ?? SIMPLE_STATS;
+  const decoration = live?.decoration ?? null;
+  const growth = live?.statsGrowth ?? SIMPLE_GROWTH;
+  const previewMid = live?.profile ? (mid ?? 0) : 0;
 
-  const previewMid = snapshot?.profile ? (mid ?? 0) : 0;
   const banner = useCachedAsset(profile.topPhoto, `users/${previewMid}/banner`);
   const face = useCachedAsset(profile.face, `users/${previewMid}/avatar`);
   const pendant = useCachedAsset(profile.pendantUrl, `users/${previewMid}/pendant`);
@@ -100,11 +110,15 @@ export function PreviewCard({
 
   const zone = useMemo(
     () =>
-      (field: keyof FieldVisibility, node: ReactNode): ReactNode => {
+      (field: keyof FieldVisibility, node: ReactNode, style?: CSSProperties): ReactNode => {
         const on = fields[field];
+        const banner = field === "banner";
         return (
           <span
-            className={`pz${on ? "" : " off"}`}
+            className={`pz${on ? "" : " off"}${banner ? " banner-zone" : ""}`}
+            // A zone may position itself so it stays the element's own hit area
+            // (the banner fills the hero, the avatar frame overlays the avatar).
+            style={banner ? { position: "absolute", inset: 0, display: "block", ...style } : style}
             title={`${FIELD_LABELS[field]}：${FIELD_HINTS[field]}\n点击切换显示状态`}
             onClick={(e) => {
               e.stopPropagation();
@@ -112,7 +126,7 @@ export function PreviewCard({
             }}
           >
             {node}
-            <span className="pz-tag">
+            <span className={`pz-tag${banner ? " inside" : ""}`}>
               {on ? "✓" : "✕"} {FIELD_LABELS[field]}
             </span>
           </span>
@@ -139,3 +153,5 @@ export function PreviewCard({
     </div>
   );
 }
+
+export { EMPTY_GROWTH };

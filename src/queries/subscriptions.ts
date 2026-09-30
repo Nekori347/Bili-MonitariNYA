@@ -10,6 +10,8 @@ import {
   updateSubscription,
   type Subscription,
 } from "../services/database/subscriptions";
+import { BilibiliAdapter } from "../services/bilibili/adapter";
+import { BiliError } from "../services/bilibili/types";
 import { useUIStore } from "../store/uiStore";
 
 export const subscriptionKeys = {
@@ -79,6 +81,32 @@ export function useRemoveSubscriptions() {
       void qc.invalidateQueries({ queryKey: subscriptionKeys.all });
     },
   });
+}
+
+/**
+ * The one "add a subscription" flow, shared by the sidebar modal and
+ * 设置 → 订阅. It only validates and writes — the caller decides what to
+ * select afterwards.
+ */
+export function useAddSubscriptionFlow() {
+  const { data: subs } = useSubscriptions();
+  const addSub = useAddSubscription();
+
+  return {
+    busy: addSub.isPending,
+    /** Resolves with the new mid, or throws a BiliError the caller can show. */
+    add: async (input: string, videoLimit: number): Promise<number> => {
+      const { mid } = BilibiliAdapter.resolveUser(input);
+      if (subs?.some((s) => s.mid === mid)) {
+        throw new BiliError("unknown", "该 UP 主已在订阅列表中");
+      }
+      // Fast path: confirm the user exists, then let the normal queries fill in
+      // profile / banner / assets / videos in the background.
+      const brief = await BilibiliAdapter.getBriefUser(mid);
+      await addSub.mutateAsync({ mid, name: brief.name || `UID ${mid}`, videoLimit });
+      return mid;
+    },
+  };
 }
 
 /** Persist a drag & drop reorder of the sidebar list. */

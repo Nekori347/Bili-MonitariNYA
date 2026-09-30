@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { BilibiliAdapter } from "../../services/bilibili/adapter";
 import { BiliError } from "../../services/bilibili/types";
-import { useAddSubscription, useSubscriptions } from "../../queries/subscriptions";
+import { useAddSubscriptionFlow } from "../../queries/subscriptions";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUIStore } from "../../store/uiStore";
 
@@ -11,30 +10,20 @@ export function AddSubscriptionModal() {
   const [error, setError] = useState<string | null>(null);
   const setAddOpen = useUIStore((s) => s.setAddOpen);
   const setSelectedMid = useUIStore((s) => s.setSelectedMid);
-  const { data: subs } = useSubscriptions();
-  const addSub = useAddSubscription();
   const globalLimit = useSettingsStore((s) => s.global.videoLimit);
+  const { add } = useAddSubscriptionFlow();
 
   const submit = async () => {
     if (!input.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const { mid } = BilibiliAdapter.resolveUser(input);
-      if (subs?.some((s) => s.mid === mid)) {
-        setError("该 UP 主已在订阅列表中");
-        return;
-      }
-      // Fast path: only confirm the user exists, then close immediately.
-      // Profile / banner / assets / videos are filled in the background by
-      // the normal queries once the subscription is selected.
-      const brief = await BilibiliAdapter.getBriefUser(mid);
-      await addSub.mutateAsync({ mid, name: brief.name || `UID ${mid}`, videoLimit: globalLimit });
+      const mid = await add(input, globalLimit);
       setSelectedMid(mid);
       setAddOpen(false);
     } catch (e) {
       if (e instanceof BiliError) {
-        setError(e.type === "not_found" ? "未找到该 UP 主" : `添加失败：${e.message}`);
+        setError(e.type === "not_found" ? "未找到该 UP 主" : e.message);
       } else {
         setError("添加失败，请检查网络或输入");
       }

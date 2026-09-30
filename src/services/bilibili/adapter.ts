@@ -1,4 +1,4 @@
-import { biliFetch, biliLimiter, isSelf } from "./client";
+import { biliFetch, biliLimiter } from "./client";
 import { ENDPOINTS } from "./endpoints";
 import {
   normalizeCardProfile,
@@ -10,7 +10,6 @@ import {
   normalizeUpStat,
   normalizeVideoDetail,
   normalizeVideoSummary,
-  toHttpsUrl,
 } from "./normalize";
 import { signWbi } from "./wbi";
 import {
@@ -154,14 +153,18 @@ export const BilibiliAdapter = {
         const raw = await getJson(ENDPOINTS.spaceInfo, params);
         if (raw?.code === -404 || !raw?.data) break;
         const p = normalizeProfile(raw, mid);
-        p.topPhoto = pickBanner({
-          ...cardImages,
-          // What the space page itself renders (fresh-space picks this first).
-          l200h: raw?.data?.top_photo_v2?.l_200h_img,
+        // The card endpoint only ever *fills gaps*: spreading it over the
+        // acc/info result would overwrite `topPhoto` with the card's undefined
+        // value and silently drop the user's custom banner.
+        const merged = mergeProfiles(p, cardProfile);
+        merged.topPhoto = pickBanner({
           topPhoto: p.topPhoto,
+          // What the space page itself renders; also the smallest variant.
+          l200h: raw?.data?.top_photo_v2?.l_200h_img,
+          ...cardImages,
         });
-        logBanner(mid, p.topPhoto);
-        return { ...p, ...cardProfile } as UserProfile;
+        logBanner(mid, merged.topPhoto);
+        return merged;
       } catch (e) {
         if (e instanceof BiliError && e.type === "not_found") throw e;
         if (!(e instanceof BiliError && (e.type === "rate_limit" || e.type === "wbi"))) break;
@@ -176,31 +179,6 @@ export const BilibiliAdapter = {
       return { ...(cardProfile as UserProfile), topPhoto: banner };
     }
     throw new BiliError("network", "获取用户资料失败");
-  },
-
-  /**
-   * The custom space banner. Only the signed-in owner can read it: Bilibili
-   * exposes it through `/x/space/v2/myinfo` (field `toutu`), which needs the
-   * session cookie and always describes the caller's own space.
-   * Returns undefined for anyone else, so callers keep the public fallback.
-   */
-  async getSelfBanner(mid: number): Promise<string | undefined> {
-    if (!isSelf(mid)) return undefined;
-    try {
-      const params = await signWbi({ web_location: "333.1387" });
-      const raw = await getJson(ENDPOINTS.myInfo, params);
-      if (raw?.code !== 0 || !raw?.data) return undefined;
-      const d = raw.data;
-      const url =
-        d.toutu?.l_img ||
-        d.theme?.toutu ||
-        d.theme_preview_img_path ||
-        d.toutu?.s_img ||
-        undefined;
-      return url ? toHttpsUrl(String(url)) : undefined;
-    } catch {
-      return undefined;
-    }
   },
 
   /**
@@ -360,6 +338,24 @@ export const BilibiliAdapter = {
   },
 };
 
+/**
+ * Merge a secondary profile into the authoritative one.
+ *
+ * Used to fold the card endpoint into `acc/info`: every key present on the
+ * card is copied only when acc/info left that field empty, so a `undefined`
+ * on the card can never blank a value acc/info did return (which is exactly
+ * how the custom space banner used to disappear).
+ */
+function mergeProfiles(primary: UserProfile, fallback: Partial<UserProfile>): UserProfile {
+  const out: Record<string, unknown> = { ...primary };
+  for (const [k, v] of Object.entries(fallback)) {
+    const cur = out[k];
+    if (v === undefined || v === null) continue;
+    if (cur === undefined || cur === null || cur === "") out[k] = v;
+  }
+  return out as unknown as UserProfile;
+}
+
 function normalizeSeriesList(raw: any): VideoSummary[] {
   const list = raw?.data?.archives ?? raw?.data?.list ?? [];
   const out: VideoSummary[] = [];
@@ -374,6 +370,8 @@ function normalizeSeriesList(raw: any): VideoSummary[] {
       view: Number(item.stat?.view ?? item.play ?? 0) || null,
       like: Number(item.stat?.like ?? 0) || null,
       coin: Number(item.stat?.coin ?? 0) || null,
+      danmaku: Number(item.stat?.danmaku ?? 0) || null,
+      reply: Number(item.stat?.reply ?? 0) || null,
     });
   }
   return out;

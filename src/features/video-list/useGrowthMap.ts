@@ -11,13 +11,26 @@ export type { VideoGrowth };
  */
 export function useGrowthMap(
   mid: number,
-  items: { bvid: string; view: number | null; like: number | null; coin: number | null }[],
+  items: {
+    bvid: string;
+    view: number | null;
+    like: number | null;
+    coin: number | null;
+    danmaku: number | null;
+    reply: number | null;
+  }[],
 ): VideoGrowthMap {
   const snapshot = useSnapshot(mid);
 
   // Recompute only when the counters themselves change, not on every render.
   const signature = useMemo(
-    () => items.map((v) => `${v.bvid}:${v.view ?? -1}:${v.like ?? -1}:${v.coin ?? -1}`).join(","),
+    () =>
+      items
+        .map(
+          (v) =>
+            `${v.bvid}:${v.view ?? -1}:${v.like ?? -1}:${v.coin ?? -1}:${v.danmaku ?? -1}:${v.reply ?? -1}`,
+        )
+        .join(","),
     [items],
   );
 

@@ -91,5 +91,17 @@ ALTER TABLE users_cache ADD COLUMN decoration_json TEXT;
 "#,
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 4,
+            description: "snapshot_danmaku_and_reply",
+            sql: r#"
+-- 弹幕 / 评论 are cumulative counters too, so they get their own snapshot
+-- columns for day/week/month growth. Existing rows keep NULL, which renders
+-- as an empty pill rather than a fabricated +0.
+ALTER TABLE video_snapshots ADD COLUMN danmaku_count INTEGER;
+ALTER TABLE video_snapshots ADD COLUMN reply_count INTEGER;
+"#,
+            kind: MigrationKind::Up,
+        },
     ]
 }

@@ -216,12 +216,21 @@ export function normalizeVideoSummary(raw: any): VideoSummary[] {
       cover: String(item.pic ?? ""),
       pubdate: Number(item.created ?? 0),
       duration: parseDuration(item.length),
-      view: null,
-      like: null,
-      coin: null,
+      view: numOrNull(item.play ?? item.stat?.view),
+      like: numOrNull(item.stat?.like),
+      coin: numOrNull(item.stat?.coin),
+      danmaku: numOrNull(item.video_review ?? item.stat?.danmaku ?? item.danmaku),
+      reply: numOrNull(item.stat?.reply ?? item.reply),
     });
   }
   return out;
+}
+
+/** Bilibili renders a missing counter as 0 or omits it; both mean "unknown". */
+function numOrNull(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 export function normalizeVideoDetail(raw: any): VideoDetail {

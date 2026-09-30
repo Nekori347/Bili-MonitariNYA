@@ -23,23 +23,62 @@ export interface FieldVisibility {
   videoLike: boolean;
   videoCoin: boolean;
   videoOnline: boolean;
+  videoDanmaku: boolean;
+  videoReply: boolean;
   growthDay: boolean;
   growthWeek: boolean;
   growthMonth: boolean;
+  /** Per-column growth pills, independent of which period is selected. */
+  growthFollowing: boolean;
+  growthFollower: boolean;
+  growthLikes: boolean;
+  growthTotalViews: boolean;
+  growthVideoCount: boolean;
 }
 
+/** The five profile counters that can carry a growth pill. */
+export type StatKey = "following" | "follower" | "likes" | "totalViews" | "videoCount";
+
+export const STAT_ORDER: StatKey[] = ["following", "follower", "likes", "totalViews", "videoCount"];
+
+/** Which switch controls the growth pill of each profile counter. */
+export const STAT_GROWTH_KEY: Record<StatKey, keyof FieldVisibility> = {
+  following: "growthFollowing",
+  follower: "growthFollower",
+  likes: "growthLikes",
+  totalViews: "growthTotalViews",
+  videoCount: "growthVideoCount",
+};
+
+/** Which switch controls the growth pill of each video counter. */
+export const VIDEO_GROWTH_KEY: Partial<Record<VideoFieldKey, keyof FieldVisibility>> = {
+  view: "videoView",
+  like: "videoLike",
+  coin: "videoCoin",
+};
+
 /** Per-video meta columns the user can reorder in settings. */
-export type VideoFieldKey = "view" | "like" | "coin" | "online" | "pubdate";
+export type VideoFieldKey = "view" | "like" | "coin" | "danmaku" | "reply" | "online" | "pubdate";
 
 export const VIDEO_FIELD_LABELS: Record<VideoFieldKey, string> = {
   view: "播放量",
   like: "点赞量",
   coin: "投币量",
+  danmaku: "弹幕量",
+  reply: "评论量",
   online: "在线人数",
   pubdate: "投稿时间",
 };
 
-export const DEFAULT_VIDEO_FIELD_ORDER: VideoFieldKey[] = ["view", "like", "coin", "online", "pubdate"];
+export const DEFAULT_VIDEO_FIELD_ORDER: VideoFieldKey[] = [
+  "view",
+  "like",
+  "coin",
+  "danmaku",
+  "reply",
+  "online",
+  "pubdate",
+];
 
 /** The one metric pinned into the video row's own trailing slot. */
 export type HighlightField = "off" | VideoFieldKey;
@@ -54,6 +93,9 @@ export interface GlobalSettings {
   primaryAccountMid: number | null; // 主账号（仅用于显示“投稿”入口）
   /** The UP that was on screen last time, restored on the next launch. */
   lastSelectedMid: number | null;
+  /** Outer frame (physical px) restored on launch, so the window reopens on
+   *  the same monitor and at the same spot it was closed on. */
+  windowBounds: { x: number; y: number; w: number; h: number } | null;
   highlightField: HighlightField; // 固定蓝色高亮字段
   growthPeriod: "day" | "week" | "month"; // 增长周期
   sidebarWidth: number; // 展开 Sidebar 宽度（140-260）
@@ -100,9 +142,16 @@ export const DEFAULT_FIELDS: FieldVisibility = {
   videoLike: true,
   videoCoin: true,
   videoOnline: true,
+  videoDanmaku: true,
+  videoReply: true,
   growthDay: true,
   growthWeek: true,
   growthMonth: true,
+  growthFollowing: true,
+  growthFollower: true,
+  growthLikes: true,
+  growthTotalViews: true,
+  growthVideoCount: true,
 };
 
 /** Default window transparency — 外观 的 Reset 按钮恢复到该值。 */
@@ -117,6 +166,7 @@ export const DEFAULT_SETTINGS: GlobalSettings = {
   trayToastShown: false,
   primaryAccountMid: null,
   lastSelectedMid: null,
+  windowBounds: null,
   highlightField: "off",
   growthPeriod: "day",
   sidebarWidth: 208,
@@ -156,9 +206,16 @@ export const FIELD_LABELS: Record<keyof FieldVisibility, string> = {
   videoLike: "点赞量",
   videoCoin: "投币量",
   videoOnline: "在线人数",
+  videoDanmaku: "弹幕量",
+  videoReply: "评论量",
   growthDay: "日增长",
   growthWeek: "周增长",
   growthMonth: "月增长",
+  growthFollowing: "关注增长",
+  growthFollower: "粉丝增长",
+  growthLikes: "获赞增长",
+  growthTotalViews: "播放增长",
+  growthVideoCount: "投稿增长",
 };
 
 /** Plain-language explanation shown as the preview tooltip (点击提示仅作次要说明). */
@@ -185,9 +242,16 @@ export const FIELD_HINTS: Record<keyof FieldVisibility, string> = {
   videoLike: "显示每条视频的点赞量",
   videoCoin: "显示每条视频的投币量",
   videoOnline: "显示每条视频当前的在线观看人数",
+  videoDanmaku: "显示每条视频的弹幕数",
+  videoReply: "显示每条视频的评论数",
   growthDay: "显示今天的增长量，历史不足时留空",
   growthWeek: "显示最近 7 天的增长量，历史不足时留空",
   growthMonth: "显示最近 30 天的增长量，历史不足时留空",
+  growthFollowing: "显示关注数的增长量",
+  growthFollower: "显示粉丝数的增长量",
+  growthLikes: "显示获赞数的增长量",
+  growthTotalViews: "显示播放数的增长量",
+  growthVideoCount: "显示投稿数的增长量",
 };
 
 /** Options for the fixed blue highlight in 视频设置. */

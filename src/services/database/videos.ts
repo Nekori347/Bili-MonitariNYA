@@ -28,6 +28,8 @@ export async function getCachedVideos(mid: number, limit: number): Promise<Cache
       view: detail.view ?? null,
       like: detail.like ?? null,
       coin: detail.coin ?? null,
+      danmaku: detail.danmaku ?? null,
+      reply: detail.reply ?? null,
       cid: r.cid != null ? Number(r.cid) : 0,
     };
   });
@@ -51,10 +53,33 @@ export async function saveVideos(mid: number, list: VideoSummary[]): Promise<voi
 }
 
 /** Persist a video's detail stats for cache display. */
-export async function saveVideoDetail(bvid: string, detail: { view: number; like: number; coin: number; cid: number; aid?: number }): Promise<void> {
+export async function saveVideoDetail(
+  bvid: string,
+  detail: {
+    view: number;
+    like: number;
+    coin: number;
+    danmaku: number;
+    reply: number;
+    cid: number;
+    aid?: number;
+  },
+): Promise<void> {
   const db = await getDb();
   await db.execute(
     "UPDATE videos SET last_detail_json = $1, cid = $2, updated_at = $3 WHERE bvid = $4",
-    [JSON.stringify({ view: detail.view, like: detail.like, coin: detail.coin, aid: detail.aid }), detail.cid, Date.now(), bvid],
+    [
+      JSON.stringify({
+        view: detail.view,
+        like: detail.like,
+        coin: detail.coin,
+        danmaku: detail.danmaku,
+        reply: detail.reply,
+        aid: detail.aid,
+      }),
+      detail.cid,
+      Date.now(),
+      bvid,
+    ],
   );
 }

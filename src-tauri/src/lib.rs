@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{
@@ -153,6 +154,122 @@ async fn login_follow(url: String, cookie: Option<String>) -> Result<BiliFetchRe
 /// Close-button behavior: true = hide to tray (default), false = quit app.
 struct CloseBehavior(Mutex<bool>);
 
+/* ------------------------------------------------------------------ *
+ * Partial click-through (鼠标穿透)
+ *
+ * The window keeps its titlebar interactive while the main content passes
+ * mouse input through to whatever is behind it. A whole-window
+ * `set_ignore_cursor_events(true)` would NOT work: the titlebar would stop
+ * receiving clicks too, and the same button could never switch the mode off.
+ *
+ * Instead a small watcher thread polls the global cursor position and flips
+ * the window's input transparency depending on whether the cursor is inside
+ * the titlebar band. Any measurement failure resolves to "interactive", so the
+ * worst case is that pass-through simply does not engage — never a window the
+ * user cannot click.
+ * ------------------------------------------------------------------ */
+
+/// Height of the always-interactive strip at the top, in CSS pixels.
+const TITLEBAR_BAND_CSS: f64 = 44.0;
+
+struct ClickThrough {
+    enabled: AtomicBool,
+    /// Last value actually pushed to the window.
+    applied: AtomicBool,
+    band_css: Mutex<f64>,
+}
+
+impl ClickThrough {
+    fn new() -> Self {
+        Self {
+            enabled: AtomicBool::new(false),
+            applied: AtomicBool::new(false),
+            band_css: Mutex::new(TITLEBAR_BAND_CSS),
+        }
+    }
+    fn band(&self) -> f64 {
+        *self.band_css.lock().unwrap()
+    }
+    fn set_band(&self, v: f64) {
+        if v.is_finite() && v > 0.0 {
+            *self.band_css.lock().unwrap() = v;
+        }
+    }
+}
+
+#[cfg(windows)]
+fn cursor_screen_pos() -> Option<(i32, i32)> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    unsafe {
+        let mut pt = POINT::default();
+        GetCursorPos(&mut pt).ok()?;
+        Some((pt.x, pt.y))
+    }
+}
+
+#[cfg(not(windows))]
+fn cursor_screen_pos() -> Option<(i32, i32)> {
+    None
+}
+
+/// `Some(true)` = cursor is over the titlebar band, `Some(false)` = it is over
+/// the content, `None` = the position could not be determined.
+fn cursor_over_titlebar(win: &tauri::WebviewWindow, band_css: f64) -> Option<bool> {
+    let pos = win.outer_position().ok()?;
+    let size = win.outer_size().ok()?;
+    let scale = win.scale_factor().ok()?;
+    let (cx, cy) = cursor_screen_pos()?;
+    let band = (band_css * scale).round() as i32;
+    let rel_x = cx - pos.x;
+    let rel_y = cy - pos.y;
+    if rel_x < 0 || rel_y < 0 || rel_x >= size.width as i32 || rel_y >= size.height as i32 {
+        return Some(false); // outside the window: content rules apply
+    }
+    Some(rel_y < band)
+}
+
+/// Watch the cursor while pass-through is on and keep the window's input
+/// transparency in sync. Runs for the life of the app; the check is a no-op
+/// (and costs one atomic load) whenever the mode is off.
+fn spawn_clickthrough_watch(app: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(40));
+        let Some(win) = app.get_webview_window("main") else {
+            continue;
+        };
+        let state = app.state::<ClickThrough>();
+
+        if !state.enabled.load(Ordering::Relaxed) {
+            if state.applied.swap(false, Ordering::Relaxed) {
+                let _ = win.set_ignore_cursor_events(false);
+            }
+            continue;
+        }
+
+        let interactive = cursor_over_titlebar(&win, state.band()).unwrap_or(true);
+        let should_ignore = !interactive;
+        if should_ignore != state.applied.load(Ordering::Relaxed)
+            && win.set_ignore_cursor_events(should_ignore).is_ok()
+        {
+            state.applied.store(should_ignore, Ordering::Relaxed);
+        }
+    });
+}
+
+/// Turn partial click-through on or off. `band` is the titlebar height in CSS
+/// pixels; the frontend sends the real measured height of its titlebar.
+#[tauri::command]
+fn set_click_through(
+    state: tauri::State<ClickThrough>,
+    enabled: bool,
+    band: f64,
+) -> Result<(), String> {
+    state.set_band(band);
+    state.enabled.store(enabled, Ordering::Relaxed);
+    Ok(())
+}
+
 #[tauri::command]
 fn set_close_behavior(state: tauri::State<CloseBehavior>, to_tray: bool) {
     *state.0.lock().unwrap() = to_tray;
@@ -211,15 +328,19 @@ async fn download_asset(app: tauri::AppHandle, url: String, key: String) -> Resu
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .build()
         .map_err(|e| e.to_string())?;
-    let bytes = client
+    let resp = client
         .get(&url)
         .header("Referer", "https://www.bilibili.com/")
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .bytes()
-        .await
         .map_err(|e| e.to_string())?;
+
+    // Verify the response is a real image. Without this an error page would be
+    // written to disk and cached as the asset.
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status().as_u16()));
+    }
+    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
 
     // Atomic replace: write to tmp, verify, then rename over the old file.
     // A failed download never destroys an existing good cache file.
@@ -253,7 +374,9 @@ pub fn run() {
                 .build(),
         )
         .manage(CloseBehavior(Mutex::new(true)))
+        .manage(ClickThrough::new())
         .setup(|app| {
+            spawn_clickthrough_watch(app.handle().clone());
             let show_i = MenuItem::with_id(app, "show", "显示 Bili Monitor", true, None::<&str>)?;
             let refresh_i = MenuItem::with_id(app, "refresh", "立即刷新", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -307,6 +430,7 @@ pub fn run() {
             set_close_behavior,
             download_asset,
             clear_user_cache,
+            set_click_through,
             secret::save_credential,
             secret::load_credential,
             secret::delete_credential

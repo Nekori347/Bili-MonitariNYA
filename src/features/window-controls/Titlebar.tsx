@@ -1,23 +1,60 @@
 import { useState } from "react";
-import { appWindow, setAlwaysOnTop } from "../../utils/window";
+import { appWindow } from "../../utils/window";
 import { useSettingsStore } from "../../store/settingsStore";
-import { useUIStore } from "../../store/uiStore";
+import {
+  useUIStore,
+  WINDOW_MODE_LABEL,
+  isOnTop,
+  isThrough,
+  type WindowMode,
+} from "../../store/uiStore";
 import type { ThemeMode } from "../../types/settings";
-import { Gear, Maximize, Minus, Monitor, Moon, Pin, Restore, Sun, XIcon } from "../../components/ui/Icons";
+import { Gear, Lock, Maximize, Minus, Monitor, Moon, Pin, Restore, Sun, XIcon } from "../../components/ui/Icons";
 
 const THEME_CYCLE: ThemeMode[] = ["system", "light", "dark"];
 
+/**
+ * Window control with four states, cycled by repeated clicks:
+ *   正常窗口 → 置顶 → 置顶 · 鼠标穿透 → 鼠标穿透 → 正常窗口
+ * The pin icon keeps its meaning; the two pass-through states add a small lock
+ * badge in the icon's lower-left corner.
+ */
+function WindowModeIcon({ mode }: { mode: WindowMode }) {
+  return (
+    <span className="winmode-icon">
+      {isOnTop(mode) ? <Pin size={13} /> : <WindowFrameIcon />}
+      {isThrough(mode) && (
+        <span className="winmode-lock">
+          <Lock size={7} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** The plain (not pinned) window glyph. */
+function WindowFrameIcon() {
+  return (
+    <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 9h18" />
+    </svg>
+  );
+}
+
 export function Titlebar() {
-  const alwaysOnTop = useSettingsStore((s) => s.global.alwaysOnTop);
-  const updateGlobal = useSettingsStore((s) => s.updateGlobal);
   const theme = useSettingsStore((s) => s.global.theme);
+  const updateGlobal = useSettingsStore((s) => s.updateGlobal);
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
+  const windowMode = useUIStore((s) => s.windowMode);
+  const cycleWindowMode = useUIStore((s) => s.cycleWindowMode);
+  const showToast = useUIStore((s) => s.showToast);
   const [maximized, setMaximized] = useState(false);
 
-  const togglePin = () => {
-    const next = !alwaysOnTop;
-    updateGlobal({ alwaysOnTop: next });
-    void setAlwaysOnTop(next);
+  const cycleMode = () => {
+    const next = cycleWindowMode();
+    updateGlobal({ alwaysOnTop: isOnTop(next) });
+    showToast(WINDOW_MODE_LABEL[next], 1600);
   };
 
   const cycleTheme = () => {
@@ -53,8 +90,13 @@ export function Titlebar() {
       </div>
 
       <div className="flex items-center no-drag">
-        <button className="titlebar-btn" title="窗口置顶" onClick={togglePin} style={alwaysOnTop ? { color: "var(--accent)" } : undefined}>
-          <Pin size={13} />
+        <button
+          className="titlebar-btn"
+          title={`${WINDOW_MODE_LABEL[windowMode]}（点击切换）`}
+          onClick={cycleMode}
+          style={isOnTop(windowMode) || isThrough(windowMode) ? { color: "var(--accent)" } : undefined}
+        >
+          <WindowModeIcon mode={windowMode} />
         </button>
         <button className="titlebar-btn" title="最小化" onClick={() => void appWindow.minimize()}>
           <Minus size={13} />

@@ -71,6 +71,8 @@ export interface VideoSummary {
   view: number | null;
   like: number | null;
   coin: number | null;
+  danmaku: number | null;
+  reply: number | null;
 }
 
 export interface VideoDetail {

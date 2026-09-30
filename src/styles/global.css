@@ -14,6 +14,7 @@
 }
 
 [data-theme="light"] {
+  --scrim: rgba(74, 80, 92, 0.16);
   --bg: rgba(244, 246, 250, 1);
   --surface: rgba(255, 255, 255, 0.72);
   --surface-2: rgba(255, 255, 255, 0.5);
@@ -26,6 +27,7 @@
 }
 
 [data-theme="dark"] {
+  --scrim: rgba(0, 0, 0, 0.30);
   --bg: rgba(22, 24, 30, 1);
   --surface: rgba(38, 41, 50, 0.66);
   --surface-2: rgba(50, 54, 64, 0.5);
@@ -43,11 +45,15 @@
 
 /* ---- Base ---- */
 
+/* The window itself is transparent and draws nothing: no background, no
+   border, no outline. `.app-shell` below is the only visible surface. */
 html,
 body,
 #root {
   height: 100%;
   background: transparent;
+  border: 0;
+  outline: 0;
 }
 
 body {
@@ -65,6 +71,15 @@ body {
   inset: 0;
 }
 
+/**
+ * The single visible surface of the window.
+ *
+ * Everything that can draw an edge — the surface, the border, the frosted
+ * backdrop — is bound to ONE 14px rounded rect here. `clip-path` is what makes
+ * that true for `backdrop-filter`, whose compositing surface is otherwise a
+ * square and leaves a dark sliver in each corner. Nothing else in the tree may
+ * add a background, border, outline or radius at this level.
+ */
 .app-shell {
   position: absolute;
   inset: 0;
@@ -73,7 +88,8 @@ body {
   background: color-mix(in srgb, var(--bg) calc(var(--app-opacity) * 100%), transparent);
   border: 1px solid var(--line);
   border-radius: 14px;
-  overflow: clip;
+  overflow: hidden;
+  clip-path: inset(0 round 14px);
   backdrop-filter: blur(30px) saturate(1.3);
   -webkit-backdrop-filter: blur(30px) saturate(1.3);
 }
@@ -106,20 +122,80 @@ body {
   gap: 6px;
 }
 
-/* App logo: a small in-place hover grow. Transform only, so nothing in the
-   titlebar moves and the bar never changes height. */
+/* Four-state window control: the pin/window glyph plus a small lock badge in
+   the lower-left corner marking the mouse pass-through modes. */
+.winmode-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+.winmode-lock {
+  position: absolute;
+  left: -3px;
+  bottom: -2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: #fff;
+}
+
+/* App logo: an in-place hover grow that lands ~2px from the window's top-left
+   corner. `transform` is outside layout, so nothing moves and the titlebar
+   never changes height; the margin only reserves room for the grown mark.
+   The neighbours are permanently offset — they are never pushed. */
 .app-logo {
   display: block;
   border-radius: 3px;
+  margin-right: 12px;
   transform-origin: center center;
-  transition: transform 150ms ease-out, box-shadow 150ms ease-out;
+  transition: transform 160ms ease-out, box-shadow 160ms ease-out;
   will-change: transform;
 }
 .app-logo:hover {
-  transform: scale(1.2);
+  transform: scale(2.4);
   position: relative;
   z-index: 30;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.3);
+}
+
+/* ---- Main pane scrim while the sidebar manages subscriptions ---- */
+.main-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  border-radius: var(--radius-md);
+  background: var(--scrim);
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+  /* Swallows every click aimed at the paused content below. */
+  pointer-events: auto;
+  cursor: not-allowed;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  animation: scrim-in 160ms ease-out;
+}
+.main-scrim-hint {
+  margin-top: 18px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 11px;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+}
+@keyframes scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .drag-region {
@@ -421,20 +497,17 @@ body {
 }
 
 /* ---- Video metric column: icon + value, growth pill centered underneath ----
-   A column is `flex: 0 0 auto` with a min-width, so its lane is stable for
-   ordinary values but still widens for a long one instead of clipping it. */
+   Each lane takes an equal share of the free width (so the row spreads across
+   the whole line) but can never fall below its own formatted text — CSS
+   measures 9 / 999 / 1.2万 / 9999万 for us, nothing is guessed or clipped. */
 .data-col {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   line-height: 1.15;
-  flex: 0 0 auto;
-}
-/* Narrow tier: every lane shrinks equally and the icon stacks over its value. */
-.is-narrow .data-col {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: max-content;
 }
 .data-col-value {
   display: inline-flex;
@@ -443,11 +516,13 @@ body {
   white-space: nowrap;
   font-size: 11px;
 }
-/* Narrow tier only: the icon sits above its value instead of beside it. */
+/* Stacked form: the icon sits above its value instead of beside it.
+   The font size deliberately stays identical to the inline form — the
+   overflow test measures text widths, so changing them here would make the
+   two layouts chase each other. */
 .data-col-value.stacked {
   flex-direction: column;
   gap: 1px;
-  font-size: 10px;
 }
 .data-col-icon {
   display: inline-flex;
@@ -493,8 +568,15 @@ body {
   justify-content: flex-end;
   min-width: 0;
 }
+.video-trailing .data-col {
+  flex: 0 0 auto;
+}
 
-/* ---- 装扮编号: artwork + overlaid fan number ---------------------------- */
+/* ---- 装扮编号: artwork + overlaid fan number ----------------------------
+
+   Image and number are one object. The number sits inside the plate the
+   artwork already reserves for it, and a soft dark halo behind the whole
+   ornament keeps it from dissolving into a light banner. */
 .ornament {
   position: relative;
   height: 48px;
@@ -506,12 +588,29 @@ body {
   cursor: default;
   user-select: none;
 }
+.ornament::before {
+  content: "";
+  position: absolute;
+  inset: -3px -6px;
+  border-radius: 12px;
+  background: radial-gradient(
+    ellipse at 32% 50%,
+    rgba(0, 0, 0, 0.42) 0%,
+    rgba(0, 0, 0, 0.24) 55%,
+    rgba(0, 0, 0, 0) 100%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
 .ornament-img {
+  position: relative;
+  z-index: 1;
   height: 48px;
   width: auto;
   max-width: 132px;
   object-fit: contain;
   display: block;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
 }
 /* Preview only: reserves the artwork's slot when the UP wears no decoration. */
 .ornament-placeholder {
@@ -522,22 +621,41 @@ body {
   border: 1px dashed var(--accent-ring);
   background: color-mix(in srgb, var(--surface-2) 70%, transparent);
 }
-/* Sits in the artwork's reserved area on the left of the card, exactly like
-   Bilibili's own `.bili-dyn-ornament__type--3 span`. */
+/* Sits in the artwork's reserved plate, exactly like Bilibili's own
+   `.bili-dyn-ornament__type--3 span`. A faint white plate plus a light stroke
+   lift the digits off a busy banner without becoming a separate white card. */
 .ornament-num {
   position: absolute;
-  left: 0;
+  left: 3%;
   top: 50%;
-  width: 44%;
+  width: 42%;
+  z-index: 2;
   text-align: center;
   font-family: fanscard, "Reeji-CloudHuPo-GBK", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 13px;
   line-height: 16px;
+  font-weight: 500;
   white-space: nowrap;
   letter-spacing: 0.02em;
   transform: translateY(-50%) scale(0.7);
   transform-origin: center center;
   pointer-events: none;
+  -webkit-text-stroke: 0.25px rgba(255, 255, 255, 0.5);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+/* Very light translucent backing, sized to the plate rather than the card. */
+.ornament-num::before {
+  content: "";
+  position: absolute;
+  inset: -3px -5px;
+  border-radius: 7px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.20) 0%,
+    rgba(255, 255, 255, 0.10) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  z-index: -1;
 }
 /* Only inside the settings preview does it need to accept a click. */
 .pz-scope .ornament,
@@ -545,36 +663,41 @@ body {
   pointer-events: auto;
 }
 
-/* ---- 粉丝牌: name block + level disc, both from MedalWall colours -------- */
+/* ---- 粉丝牌: name block + level disc, both from MedalWall colours --------
+
+   Bilibili's own technique: a LARGE font scaled down, never a small font
+   squeezed in. `zoom` is used rather than `transform` because it shrinks the
+   layout box together with the glyphs — so the name keeps its real width and
+   is never clipped by its own scaling. Nothing here uses `overflow: hidden`. */
 .fan-medal {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  height: 14px;
-  padding-left: 5px;
-  padding-right: 2px;
-  border: 0.5px solid;
-  border-radius: 10px;
-  overflow: hidden;
+  gap: 4px;
+  height: 21px;
+  padding: 0 3px 0 8px;
+  border: 1px solid;
+  border-radius: 11px;
   white-space: nowrap;
+  flex: none;
   user-select: none;
   line-height: 1;
 }
 .fm-name {
   display: inline-flex;
   align-items: center;
-  height: 14px;
+  height: 21px;
   min-width: 0;
 }
-/* Bilibili renders the name larger and scales it down; `zoom` is used instead
-   of `transform` so the layout box shrinks with the glyphs. */
 .fm-name > span {
   display: inline-block;
-  font-size: 18px;
-  line-height: 14px;
+  font-family: fanscard, "Reeji-CloudHuPo-GBK", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 20px;
+  line-height: 21px;
   font-weight: 500;
   white-space: nowrap;
-  max-width: 152px;
+  /* Layout cap only — with zoom 0.5 this is ~110px on screen (≈10 CJK chars).
+     A longer name ellipsises inside its own box instead of overflowing. */
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   zoom: 0.5;
@@ -583,25 +706,40 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 11.5px;
-  height: 11.5px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.22);
+  background: rgba(0, 0, 0, 0.26);
   flex: none;
 }
 .fm-level > span {
   display: inline-block;
-  font-family: "Reeji-CloudHuPo-GBK", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 14px;
-  line-height: 14px;
-  font-weight: 500;
+  /* Reeji-CloudHuPo-GBK is Bilibili's level-digit face. Neither it nor
+     `fanscard` ships with the app (neither has a redistribution grant), so the
+     fallbacks carry the digit: a slightly heavier, tabular-numeral render keeps
+     a two-digit level readable inside the 16px disc. */
+  font-family: "Reeji-CloudHuPo-GBK", fanscard, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 20px;
+  line-height: 21px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
   zoom: 0.5;
 }
 .fm-guard {
-  height: 12px;
+  height: 13px;
   width: auto;
   flex: none;
   margin-left: 1px;
+}
+
+/* 勋章 / Nameplate badge beside the username. */
+.nameplate-img {
+  height: 15px;
+  width: auto;
+  max-width: 92px;
+  object-fit: contain;
+  display: block;
 }
 
 /* Click-to-toggle preview zones (settings → 名片 / 视频) */
@@ -641,20 +779,19 @@ body {
 .pz-scope .pz:hover .pz-tag {
   opacity: 1;
 }
-.pz-pin {
-  position: absolute;
-  right: -4px;
-  top: -6px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: #00aeec;
-  color: #fff;
-  font-size: 9px;
-  line-height: 13px;
-  pointer-events: none;
+/* Used by zones pinned to the card's top edge (Banner): its label is a small
+   switch in the hero's top-left corner, since a label above the element would
+   be clipped by the card's rounded overflow. */
+.pz-tag.inside {
+  top: 6px;
+  bottom: auto;
+  left: 8px;
+  transform: none;
 }
-.pz-scope .pz.off .pz-pin {
-  opacity: 0.5;
+/* The banner's own zone is always hoverable, on or off, so the switch is
+   reachable even while the artwork is hidden. */
+.pz-scope .pz.banner-zone {
+  z-index: 3;
 }
 
 /* ---- Settings bits ---- */
@@ -690,6 +827,25 @@ body {
 .link-btn:hover {
   text-decoration: underline;
 }
+/* 投稿 entry: deliberately quiet — a hairline chip, not a pink button. */
+.upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.upload-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
 .legend-dot {
   display: inline-block;
   width: 8px;
@@ -711,6 +867,73 @@ body {
 .override-chip:hover {
   color: #e5484d;
   border-color: color-mix(in srgb, #e5484d 45%, var(--line));
+}
+/* Compact up/down reorder control in 设置 → 订阅 */
+.order-btn {
+  width: 18px;
+  height: 14px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.order-btn:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--hover);
+}
+
+/* ---- Two-step "morph in place" action button ---- */
+.morph-btn {
+  justify-content: center;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: width 190ms ease, background 190ms ease, border-color 190ms ease, color 190ms ease;
+}
+.morph-btn.sm {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.morph-btn .morph-label {
+  display: inline-block;
+  animation: morph-label-in 190ms ease-out;
+}
+@keyframes morph-label-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.morph-btn.danger:hover {
+  background: color-mix(in srgb, #e5484d 12%, var(--surface-2));
+  border-color: color-mix(in srgb, #e5484d 45%, var(--line));
+  color: #e5484d;
+}
+.morph-btn.danger.confirming {
+  background: #e5484d;
+  border-color: #e5484d;
+  color: #fff;
+}
+.morph-btn.danger.confirming:hover {
+  background: #d13b40;
+  color: #fff;
+}
+.morph-btn.accent:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-ring);
+  color: var(--accent);
+}
+.morph-btn.accent.confirming {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.morph-btn.accent.confirming:hover {
+  background: #fb5d8a;
+  color: #fff;
 }
 
 /* refresh progress: 2px line between profile card and video list */

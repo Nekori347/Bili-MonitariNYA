@@ -1,14 +1,77 @@
-import { getCurrentWindow, Effect } from "@tauri-apps/api/window";
+import { getCurrentWindow, availableMonitors, Effect } from "@tauri-apps/api/window";
+import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export const appWindow = getCurrentWindow();
+
+/**
+ * The always-interactive strip at the top of the window, in CSS pixels.
+ * In mouse pass-through mode everything below it forwards clicks to whatever
+ * is behind the window, while this band keeps working — which is what lets the
+ * same titlebar button switch the mode back off.
+ */
+export const TITLEBAR_BAND_CSS = 44;
 
 export async function setAlwaysOnTop(on: boolean): Promise<void> {
   try {
     await appWindow.setAlwaysOnTop(on);
   } catch {
     /* ignore if unsupported */
+  }
+}
+
+/** Enable/disable partial mouse pass-through (no-op outside Tauri). */
+export async function setClickThrough(enabled: boolean): Promise<void> {
+  try {
+    await invoke("set_click_through", { enabled, band: TITLEBAR_BAND_CSS });
+  } catch {
+    /* ignore if unsupported */
+  }
+}
+
+export interface WindowBounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Current outer frame in physical pixels. */
+export async function readWindowBounds(): Promise<WindowBounds | null> {
+  try {
+    const [pos, size] = await Promise.all([appWindow.outerPosition(), appWindow.outerSize()]);
+    return { x: pos.x, y: pos.y, w: size.width, h: size.height };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Restore the frame the window had when it was last closed.
+ *
+ * The saved position is only reused if it still overlaps a connected monitor —
+ * otherwise (monitor unplugged, resolution changed) the window recentres rather
+ * than opening off-screen.
+ */
+export async function applyWindowBounds(b: WindowBounds): Promise<void> {
+  try {
+    const monitors = await availableMonitors();
+    const reachable = monitors.some((m) => {
+      const ax = m.position.x;
+      const ay = m.position.y;
+      const aw = m.size.width;
+      const ah = m.size.height;
+      return b.x < ax + aw && b.x + b.w > ax && b.y < ay + ah && b.y + b.h > ay;
+    });
+    if (!reachable) {
+      await appWindow.center();
+      return;
+    }
+    await appWindow.setSize(new PhysicalSize(Math.max(360, b.w), Math.max(600, b.h)));
+    await appWindow.setPosition(new PhysicalPosition(b.x, b.y));
+  } catch {
+    /* ignore */
   }
 }
 

@@ -39,12 +39,13 @@ export function useUserProfile(mid: number, isForeground: boolean) {
       const fresh = await BilibiliAdapter.getUserProfile(mid);
       const old = knownProfile(mid);
 
-      // The real custom space banner is only readable by its owner, so for the
-      // signed-in account try that first; otherwise keep whatever banner we
-      // already had cached rather than dropping back to Bilibili's stock art.
-      const selfBanner = await BilibiliAdapter.getSelfBanner(mid).catch(() => undefined);
-      if (selfBanner) fresh.topPhoto = selfBanner;
-      else if (old?.topPhoto && isDefaultBannerUrl(fresh.topPhoto)) fresh.topPhoto = old.topPhoto;
+      // The custom banner comes from the risk-controlled `/space/wbi/acc/info`.
+      // When that call degrades to the card endpoint only Bilibili's stock
+      // artwork is available, so a previously successful custom banner is
+      // never replaced by a default one.
+      if (old?.topPhoto && (!fresh.topPhoto || isDefaultBannerUrl(fresh.topPhoto))) {
+        fresh.topPhoto = old.topPhoto;
+      }
 
       // MedalWall carries the real v2 medal gradient; only overwrite with it.
       const wallMedal = await BilibiliAdapter.getFansMedal(mid).catch(() => null);
@@ -53,7 +54,6 @@ export function useUserProfile(mid: number, isForeground: boolean) {
       // Never overwrite a previously-successful asset with an empty value when
       // the current fetch fell back to the card endpoint.
       if (old) {
-        if (!fresh.topPhoto && old.topPhoto) fresh.topPhoto = old.topPhoto;
         if (!fresh.pendantUrl && old.pendantUrl) fresh.pendantUrl = old.pendantUrl;
         if (!fresh.fansMedal && old.fansMedal) fresh.fansMedal = old.fansMedal;
       }

@@ -15,6 +15,8 @@ export interface VideoGrowth {
   view: Growth;
   like: Growth;
   coin: Growth;
+  danmaku: Growth;
+  reply: Growth;
 }
 
 export type VideoGrowthMap = Record<string, VideoGrowth>;
@@ -27,6 +29,8 @@ export const EMPTY_VIDEO_GROWTH: VideoGrowth = {
   view: { ...EMPTY_GROWTH },
   like: { ...EMPTY_GROWTH },
   coin: { ...EMPTY_GROWTH },
+  danmaku: { ...EMPTY_GROWTH },
+  reply: { ...EMPTY_GROWTH },
 };
 
 /** Window start offsets: now - offset is the instant we compare against. */
@@ -118,6 +122,8 @@ export interface GrowthSubject {
   view: number | null;
   like: number | null;
   coin: number | null;
+  danmaku: number | null;
+  reply: number | null;
 }
 
 /**
@@ -133,14 +139,22 @@ export async function computeVideoGrowthMap(
 
   const db = await getDb();
   const rows: any[] = await db.select(
-    `SELECT bvid, captured_at, view_count, like_count, coin_count
+    `SELECT bvid, captured_at, view_count, like_count, coin_count, danmaku_count, reply_count
        FROM video_snapshots
       WHERE mid = $1 AND captured_at >= $2
       ORDER BY bvid ASC, captured_at ASC`,
     [mid, Date.now() - 31 * DAY],
   );
 
-  const byBvid = new Map<string, { capturedAt: number; view: number | null; like: number | null; coin: number | null }[]>();
+  interface Row {
+    capturedAt: number;
+    view: number | null;
+    like: number | null;
+    coin: number | null;
+    danmaku: number | null;
+    reply: number | null;
+  }
+  const byBvid = new Map<string, Row[]>();
   for (const r of rows) {
     const key = String(r.bvid);
     const list = byBvid.get(key) ?? [];
@@ -149,16 +163,23 @@ export async function computeVideoGrowthMap(
       view: r.view_count != null ? Number(r.view_count) : null,
       like: r.like_count != null ? Number(r.like_count) : null,
       coin: r.coin_count != null ? Number(r.coin_count) : null,
+      danmaku: r.danmaku_count != null ? Number(r.danmaku_count) : null,
+      reply: r.reply_count != null ? Number(r.reply_count) : null,
     });
     byBvid.set(key, list);
   }
 
+  const series = (snaps: Row[], metric: keyof Omit<Row, "capturedAt">) =>
+    snaps.map((s) => ({ capturedAt: s.capturedAt, value: s[metric] }));
+
   for (const v of items) {
     const snaps = byBvid.get(v.bvid) ?? [];
     map[v.bvid] = {
-      view: growthFrom(snaps.map((s) => ({ capturedAt: s.capturedAt, value: s.view })), v.view),
-      like: growthFrom(snaps.map((s) => ({ capturedAt: s.capturedAt, value: s.like })), v.like),
-      coin: growthFrom(snaps.map((s) => ({ capturedAt: s.capturedAt, value: s.coin })), v.coin),
+      view: growthFrom(series(snaps, "view"), v.view),
+      like: growthFrom(series(snaps, "like"), v.like),
+      coin: growthFrom(series(snaps, "coin"), v.coin),
+      danmaku: growthFrom(series(snaps, "danmaku"), v.danmaku),
+      reply: growthFrom(series(snaps, "reply"), v.reply),
     };
   }
   return map;

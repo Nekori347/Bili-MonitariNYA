@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { invalidateUserAssets } from "../../utils/assetCache";
 
 export interface Subscription {
   mid: number;
@@ -129,6 +130,7 @@ export async function removeSubscription(mid: number): Promise<void> {
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("clear_user_cache", { mid: String(mid) });
+    invalidateUserAssets(mid);
   } catch {
     /* ignore if not in Tauri */
   }
@@ -150,7 +152,10 @@ export async function removeSubscriptions(mids: number[]): Promise<void> {
   await db.execute(`DELETE FROM users_cache WHERE mid IN (${placeholders})`, mids);
   try {
     const { invoke } = await import("@tauri-apps/api/core");
-    for (const mid of mids) await invoke("clear_user_cache", { mid: String(mid) });
+    for (const mid of mids) {
+      await invoke("clear_user_cache", { mid: String(mid) });
+      invalidateUserAssets(mid);
+    }
   } catch {
     /* cached files are best-effort */
   }

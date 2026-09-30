@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { Providers } from "./providers";
 import { useSubscriptions } from "../queries/subscriptions";
-import { useUIStore } from "../store/uiStore";
+import { useUIStore, isOnTop, isThrough } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { useAuthStore } from "../store/authStore";
 import { useDashboardStore } from "../store/dashboardStore";
@@ -15,7 +15,11 @@ import { SettingsPanel } from "../features/settings/SettingsPanel";
 import { useBackgroundRefresh } from "../queries/background";
 import {
   applyWindowEffects,
+  applyWindowBounds,
+  appWindow,
+  readWindowBounds,
   setAlwaysOnTop,
+  setClickThrough,
   setCloseBehavior,
   onWindowHidden,
   onWindowShown,
@@ -47,19 +51,65 @@ function useThemeEffect() {
   }, [opacity]);
 }
 
-/** Restore persisted window state (native backdrop + always-on-top) on startup. */
+/**
+ * Window state: native backdrop, the four-state mode (always-on-top × mouse
+ * pass-through) and the saved frame, so the app reopens on the monitor and at
+ * the spot it was last closed on.
+ */
 function useWindowStateEffect() {
   const loaded = useSettingsStore((s) => s.loaded);
-  const alwaysOnTop = useSettingsStore((s) => s.global.alwaysOnTop);
   const closeToTray = useSettingsStore((s) => s.global.closeToTray);
+  const savedBounds = useSettingsStore((s) => s.global.windowBounds);
+  const windowMode = useUIStore((s) => s.windowMode);
 
   useEffect(() => {
     void applyWindowEffects();
   }, []);
 
+  // Restore the last frame once, after settings are readable.
+  const restored = useRef(false);
   useEffect(() => {
-    if (loaded) void setAlwaysOnTop(alwaysOnTop);
-  }, [loaded, alwaysOnTop]);
+    if (!loaded || restored.current) return;
+    restored.current = true;
+    if (savedBounds) void applyWindowBounds(savedBounds);
+  }, [loaded, savedBounds]);
+
+  // Persist the frame whenever a move/resize settles.
+  useEffect(() => {
+    if (!loaded) return;
+    let timer: number | null = null;
+    const save = () => {
+      if (timer != null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        void readWindowBounds().then((b) => {
+          if (b) useSettingsStore.getState().updateGlobal({ windowBounds: b });
+        });
+      }, 600);
+    };
+    const unlisten = [appWindow.onMoved(save), appWindow.onResized(save)];
+    return () => {
+      if (timer != null) window.clearTimeout(timer);
+      for (const p of unlisten) void p.then((f) => f());
+    };
+  }, [loaded]);
+
+  // The mode drives both the always-on-top flag and the pass-through watcher.
+  // The initial mode comes from the persisted always-on-top setting; mouse
+  // pass-through itself is session-only, so a launch never starts click-through.
+  const applied = useRef(false);
+  useEffect(() => {
+    if (!loaded) return;
+    if (!applied.current) {
+      applied.current = true;
+      const initial = useSettingsStore.getState().global.alwaysOnTop ? "onTop" : "normal";
+      if (useUIStore.getState().windowMode !== initial) {
+        useUIStore.getState().setWindowMode(initial);
+        return; // re-runs with the resolved mode
+      }
+    }
+    void setAlwaysOnTop(isOnTop(windowMode));
+    void setClickThrough(isThrough(windowMode));
+  }, [loaded, windowMode]);
 
   // Sync the close-button behavior to the Rust layer whenever it changes.
   useEffect(() => {
@@ -163,13 +213,14 @@ function useTrayEvents() {
 
 function ToastHost() {
   const toast = useUIStore((s) => s.toast);
+  const toastMs = useUIStore((s) => s.toastMs);
   const clearToast = useUIStore((s) => s.clearToast);
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => clearToast(), 4000);
+    const t = setTimeout(() => clearToast(), toastMs);
     return () => clearTimeout(t);
-  }, [toast, clearToast]);
+  }, [toast, toastMs, clearToast]);
 
   if (!toast) return null;
   return (
@@ -240,7 +291,7 @@ function Main() {
         <Titlebar />
         <div className="flex flex-1 min-h-0 relative">
           <Sidebar subs={subs ?? []} loading={!isSuccess} collapsed={sidebarCollapsed} locked={locked} />
-          <main className="flex-1 min-w-0 p-2.5 flex flex-col min-h-0">
+          <main className="flex-1 min-w-0 p-2.5 flex flex-col min-h-0 relative">
             {!hasSubs ? (
               <EmptyState />
             ) : selectedMid != null ? (
@@ -250,6 +301,7 @@ function Main() {
                 <VideoList mid={selectedMid} />
               </div>
             ) : null}
+            <ManageScrim />
           </main>
         </div>
         {addOpen && <AddSubscriptionModal />}
@@ -302,6 +354,21 @@ function RefreshProgress() {
   return (
     <div className="flex-none refresh-line" style={{ height: 2 }}>
       <div className={`refresh-fill${visible ? " on" : ""}`} />
+    </div>
+  );
+}
+
+/**
+ * While the sidebar is managing subscriptions the main pane is not usable.
+ * A light scrim says so, and it swallows every pointer event so the content
+ * underneath cannot be clicked. The titlebar stays fully interactive.
+ */
+function ManageScrim() {
+  const managing = useUIStore((s) => s.managingSubscriptions);
+  if (!managing) return null;
+  return (
+    <div className="main-scrim" aria-hidden>
+      <span className="main-scrim-hint">正在管理订阅，右侧已暂停操作</span>
     </div>
   );
 }

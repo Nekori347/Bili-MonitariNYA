@@ -97,6 +97,19 @@ export const Video = (p: P) => (
   </Svg>
 );
 export const XIcon = (p: P) => <Svg {...p}><path d="M18 6 6 18M6 6l12 12" /></Svg>;
+
+/**
+ * The delete-mode "×" inside the red disc. Same geometry as XIcon, but the
+ * pair of strokes is 1px higher (optically centred in the 18px circle, which
+ * reads better than geometric centring) and drawn slightly heavier with round
+ * caps. Never a font glyph.
+ */
+export const DeleteX = (p: P) => (
+  <Svg {...p} strokeWidth={2.3} viewBox="0 0 24 24">
+    <path d="M18 4 6 16" />
+    <path d="M6 4 18 16" />
+  </Svg>
+);
 export const Minus = (p: P) => <Svg {...p}><path d="M5 12h14" /></Svg>;
 export const Maximize = (p: P) => (
   <Svg {...p}>
@@ -181,6 +194,27 @@ export const Monitor = (p: P) => (
   <Svg {...p}>
     <rect x="2" y="3" width="20" height="14" rx="2" />
     <path d="M8 21h8M12 17v4" />
+  </Svg>
+);
+/** 弹幕 — a comment lane sliding across the frame. */
+export const Danmaku = (p: P) => (
+  <Svg {...p}>
+    <rect x="2" y="5" width="20" height="14" rx="3" />
+    <path d="M6 10h7" />
+    <path d="M6 14h11" />
+  </Svg>
+);
+/** 评论 — a speech bubble. */
+export const Comment = (p: P) => (
+  <Svg {...p}>
+    <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.4 9.4 0 0 1-2.8-.4L3 21l1.5-4.1A8.2 8.2 0 0 1 3 11.5a8.4 8.4 0 0 1 9-8.4 8.4 8.4 0 0 1 9 8.4Z" />
+  </Svg>
+);
+/** Small badge marking the mouse pass-through window modes. */
+export const Lock = (p: P) => (
+  <Svg {...p}>
+    <rect x="4" y="10" width="16" height="11" rx="2" />
+    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
   </Svg>
 );
 /** Reset-to-default: a counter-clockwise arrow curling back on itself. */

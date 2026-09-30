@@ -5,7 +5,12 @@ import { insertSnapshot } from "../services/database/snapshots";
 import { saveVideos, saveVideoDetail } from "../services/database/videos";
 import { onlineInterval, videoStatsInterval } from "../utils/refresh";
 import { useUIStore } from "../store/uiStore";
-import { useDashboardStore, useSnapshot, type SnapshotVideo } from "../store/dashboardStore";
+import {
+  useDashboardStore,
+  useSnapshot,
+  type SnapshotVideo,
+  type VideoStatPatch,
+} from "../store/dashboardStore";
 
 export type VideoItem = SnapshotVideo;
 
@@ -25,6 +30,8 @@ interface DetailResult {
   view: number;
   like: number;
   coin: number;
+  danmaku: number;
+  reply: number;
   cid: number;
 }
 
@@ -86,15 +93,26 @@ export function useVideos(mid: number, limit: number, isForeground: boolean): Vi
           likeCount: detail.like,
           coinCount: detail.coin,
           onlineCount: null,
+          danmakuCount: detail.danmaku,
+          replyCount: detail.reply,
         }).catch(() => {});
         void saveVideoDetail(s.bvid, {
           view: detail.view,
           like: detail.like,
           coin: detail.coin,
+          danmaku: detail.danmaku,
+          reply: detail.reply,
           cid: detail.cid,
           aid: detail.aid,
         }).catch(() => {});
-        return { view: detail.view, like: detail.like, coin: detail.coin, cid: detail.cid };
+        return {
+          view: detail.view,
+          like: detail.like,
+          coin: detail.coin,
+          danmaku: detail.danmaku,
+          reply: detail.reply,
+          cid: detail.cid,
+        };
       },
       staleTime: LIST_STALE,
       refetchInterval: videoStatsInterval(mode, isForeground),
@@ -119,12 +137,15 @@ export function useVideos(mid: number, limit: number, isForeground: boolean): Vi
     }),
   });
 
-  const detailSig = detailQueries.map((q) => q.data).map((d) => (d ? `${d.view}:${d.like}:${d.coin}:${d.cid}` : "")).join("|");
+  const detailSig = detailQueries
+    .map((q) => q.data)
+    .map((d) => (d ? `${d.view}:${d.like}:${d.coin}:${d.danmaku}:${d.reply}:${d.cid}` : ""))
+    .join("|");
   const onlineSig = onlineQueries.map((q) => q.data).map((o) => o?.displayText ?? "").join("|");
 
   useEffect(() => {
     if (items.length === 0) return;
-    const rows: Record<string, { view: number | null; like: number | null; coin: number | null; cid: number; online: SnapshotVideo["online"] }> = {};
+    const rows: Record<string, VideoStatPatch> = {};
     items.forEach((s, i) => {
       const d = detailQueries[i]?.data;
       const knownOnline = onlineQueries[i]?.data;
@@ -133,6 +154,8 @@ export function useVideos(mid: number, limit: number, isForeground: boolean): Vi
         view: d?.view ?? null,
         like: d?.like ?? null,
         coin: d?.coin ?? null,
+        danmaku: d?.danmaku ?? null,
+        reply: d?.reply ?? null,
         cid: d?.cid ?? s.cid,
         online: onlineQueries[i]?.data ?? null,
       };

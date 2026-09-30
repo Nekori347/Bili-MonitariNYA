@@ -9,7 +9,7 @@ import { Avatar } from "./Avatar";
 import { useUIStore } from "../../store/uiStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { spaceUrl } from "../../services/bilibili/endpoints";
-import { ChevronLeft, ChevronRight, ExternalLink, Gear, Grip, Plus, Trash, XIcon } from "../../components/ui/Icons";
+import { ChevronLeft, ChevronRight, DeleteX, ExternalLink, Gear, Grip, Plus, Trash } from "../../components/ui/Icons";
 
 const MIN_W = 140;
 const MAX_W = 260;
@@ -155,8 +155,11 @@ function FullList({
   const removeSubs = useRemoveSubscriptions();
   const qc = useQueryClient();
 
-  /* ---- delete mode: every stage is reversible, nothing is deleted until 保存 ---- */
-  const [deleteMode, setDeleteMode] = useState(false);
+  /* ---- delete mode: every stage is reversible, nothing is deleted until 保存 ----
+     The flag lives in the UI store so the main pane can dim itself and so the
+     state survives collapsing the sidebar. */
+  const deleteMode = useUIStore((s) => s.managingSubscriptions);
+  const setDeleteMode = useUIStore((s) => s.setManagingSubscriptions);
   const [confirmMid, setConfirmMid] = useState<number | null>(null);
   const [pending, setPending] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -167,6 +170,9 @@ function FullList({
     setPending(new Set());
     setError(null);
   };
+
+  // Leaving the pane entirely must never strand the dimmed main area.
+  useEffect(() => () => setDeleteMode(false), [setDeleteMode]);
 
   const saveDelete = async () => {
     const mids = [...pending];
@@ -336,7 +342,7 @@ function FullList({
                         setConfirmMid(sub.mid);
                       }
                     }}>
-                    {confirming ? <span className="text-[11px] font-medium">确认删除</span> : <XIcon size={12} />}
+                    {confirming ? <span className="text-[11px] font-medium">确认删除</span> : <DeleteX size={12} />}
                   </button>
                 )
               ) : (
