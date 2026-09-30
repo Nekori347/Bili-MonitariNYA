@@ -338,11 +338,24 @@ function ProfileStats({
         <div className="flex-1 grid" style={{ gridTemplateColumns: `repeat(${visible.length}, minmax(0, 1fr))` }}>
           {visible.map((k) => {
             const g = growth[k] ?? EMPTY_GROWTH;
-            const delta = periodOn && shown(STAT_GROWTH_KEY[k])
+            const growthKey = STAT_GROWTH_KEY[k];
+            const delta = periodOn && shown(growthKey)
               ? (period === "day" ? g.day : period === "week" ? g.week : g.month)
               : null;
+
+            // 显示字段 与 显示增长 是两个独立开关：增长胶囊是它自己的点击区。
+            const deltaNode =
+              preview && zone
+                ? zone(
+                    growthKey,
+                    delta != null
+                      ? <GrowthPill v={delta} />
+                      : <span className="growth-pill empty">—</span>,
+                  )
+                : delta != null ? <GrowthPill v={delta} /> : undefined;
+
             const cell = (
-              <StatCell label={STAT_LABELS[k]} value={stats?.[k] ?? null} delta={delta ?? null} />
+              <StatCell label={STAT_LABELS[k]} value={stats?.[k] ?? null} deltaNode={deltaNode} />
             );
             return (
               <span key={k} style={{ display: "contents" }}>
@@ -369,10 +382,10 @@ function ProfileStats({
 
 /**
  * Stats cell, three stacked rows: label / value / growth pill.
- * The growth pill is its own preview zone when previewing, so it can be turned
- * off independently of the column. Missing values render as an empty slot.
+ * `deltaNode` is supplied by the caller so the pill can be its own preview zone
+ * (显示字段 与 显示增长 相互独立). Missing values render as an empty slot.
  */
-function StatCell({ label, value, delta }: { label: string; value: number | null; delta: number | null }) {
+function StatCell({ label, value, deltaNode }: { label: string; value: number | null; deltaNode?: ReactNode }) {
   return (
     <span className="flex flex-col items-center justify-center" style={{ lineHeight: 1.1, minWidth: 0, textAlign: "center" }}>
       <span className="text-[9.5px] whitespace-nowrap" style={{ color: "var(--text-3)" }}>{label}</span>
@@ -380,7 +393,7 @@ function StatCell({ label, value, delta }: { label: string; value: number | null
         {value == null ? "" : formatCount(value)}
       </span>
       <span className="flex items-center justify-center" style={{ height: 13 }}>
-        {delta != null && <GrowthPill v={delta} />}
+        {deltaNode}
       </span>
     </span>
   );

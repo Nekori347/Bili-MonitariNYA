@@ -561,6 +561,12 @@ body {
   border-radius: 4px;
   white-space: nowrap;
 }
+/* Preview only: keeps the growth toggle clickable when there is no delta yet. */
+.growth-pill.empty {
+  color: var(--text-3);
+  background: transparent;
+  border: 1px dashed var(--line);
+}
 /* The pinned metric's own slot at the row's trailing edge. */
 .video-trailing {
   display: flex;
