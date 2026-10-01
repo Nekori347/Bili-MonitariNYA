@@ -684,11 +684,15 @@ function AboutSection() {
         <div className="flex flex-col gap-1.5 text-[12.5px]" style={{ color: "var(--text-2)" }}>
           {/* 中文名 + 萌百式玩梗黑块，然后是英文名。这块只在设置里出现，
               不会挤进标题栏。 */}
-          <div className="flex flex-col gap-1">
-            <div className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>
-              {APP_NAME_ZH}
+          <div className="flex flex-col gap-1.5">
+            {/* 中文名和它下面那块黑块自成一组，中间不留额外间距 —— 黑块只和名字
+                隔 1~2px。 */}
+            <div className="moe-name">
+              <div className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>
+                {APP_NAME_ZH}
+              </div>
+              <MoeBlock name={APP_NAME_ZH} />
             </div>
-            <MoeBlock name={APP_NAME_ZH} />
             <div className="text-[11.5px]" style={{ color: "var(--text-3)" }}>
               {APP_DISPLAY_NAME}
             </div>
@@ -782,8 +786,10 @@ function MoeBlock({ name, size = 14 }: { name: string; size?: number }) {
       <span className="moe-metric" aria-hidden="true">{prefix}</span>
       <span className="moe-slot">
         <span className="moe-metric" aria-hidden="true">{MOE_ANCHOR}</span>
-        <span className="moe-word">视奸</span>
-        <span className="moe-cover" aria-hidden="true" />
+        <span className="moe-chip">
+          <span className="moe-word">视奸</span>
+          <span className="moe-cover" aria-hidden="true" />
+        </span>
       </span>
     </span>
   );
