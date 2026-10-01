@@ -286,6 +286,71 @@ fn clear_user_cache(app: tauri::AppHandle, mid: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Recursive byte size of a directory. Unreadable entries are skipped instead of
+/// failing the scan — a size report must never error out.
+fn dir_size(dir: &std::path::Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut total = 0u64;
+    for entry in entries.flatten() {
+        match entry.metadata() {
+            Ok(meta) if meta.is_dir() => total += dir_size(&entry.path()),
+            Ok(meta) => total += meta.len(),
+            Err(_) => {}
+        }
+    }
+    total
+}
+
+/// On-disk size of the app's own asset cache.
+#[derive(serde::Serialize)]
+struct CacheUsage {
+    /// Bytes under the app cache dir, **excluding** the WebView2 runtime's own
+    /// `EBWebView` directory: that is browser scratch rather than the app's
+    /// asset cache, and on a working install it is roughly 40× everything the
+    /// app itself writes. Counting it would make 清除缓存 look like it frees
+    /// nothing.
+    total: u64,
+    /// Bytes per UP directory name (`users/<mid>`).
+    users: std::collections::HashMap<String, u64>,
+}
+
+/// Measure the asset cache. Strictly read-only — it creates, moves and deletes
+/// nothing, so it can be called at any time without touching the cache layout.
+#[tauri::command]
+fn cache_usage(app: tauri::AppHandle) -> Result<CacheUsage, String> {
+    let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy() == "EBWebView" {
+                continue;
+            }
+            match entry.metadata() {
+                Ok(meta) if meta.is_dir() => total += dir_size(&entry.path()),
+                Ok(meta) => total += meta.len(),
+                Err(_) => {}
+            }
+        }
+    }
+
+    let mut users = std::collections::HashMap::new();
+    if let Ok(entries) = std::fs::read_dir(cache_dir.join("users")) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                users.insert(
+                    entry.file_name().to_string_lossy().to_string(),
+                    dir_size(&entry.path()),
+                );
+            }
+        }
+    }
+
+    Ok(CacheUsage { total, users })
+}
+
 /// Download a remote asset (banner/avatar/pendant/...) into the app cache dir.
 /// Returns the local file path. Reuses existing files when the URL is unchanged.
 #[tauri::command]
@@ -430,6 +495,7 @@ pub fn run() {
             set_close_behavior,
             download_asset,
             clear_user_cache,
+            cache_usage,
             set_click_through,
             secret::save_credential,
             secret::load_credential,

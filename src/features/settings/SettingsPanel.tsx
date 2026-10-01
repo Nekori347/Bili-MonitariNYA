@@ -11,6 +11,7 @@ import {
   useSubscriptions,
 } from "../../queries/subscriptions";
 import { invalidateUserAssets } from "../../utils/assetCache";
+import { formatCacheSize, getCacheUsage, type CacheUsage } from "../../services/cacheUsage";
 import { setAlwaysOnTop } from "../../utils/window";
 import { removeSubscription, type Subscription } from "../../services/database/subscriptions";
 import {
@@ -486,28 +487,7 @@ function GlobalBody({ category, tab, actions }: { category: Category; tab: strin
           </Section>
         </Sections>
       ) : (
-        <Sections>
-          <Section title="本机缓存" open>
-            <div className="text-[12px] mb-2" style={{ color: "var(--text-2)" }}>
-              头像、Banner、头像框和装扮图片会缓存在本机，再次查看时不用重新下载。<br />
-              清除缓存后，下次查看这些图片时会重新获取。
-            </div>
-            <div className="flex flex-col gap-1">
-              {(subs ?? []).map((s) => (
-                <Row key={s.mid} label={s.remark || s.name || `UID ${s.mid}`}>
-                  <button
-                    className={`btn text-[11px] px-2 py-1${actions.has("clearCache", s.mid) ? " pending-action" : ""}`}
-                    title="保存并退出后才会真正清除本机缓存"
-                    onClick={() => actions.toggle("clearCache", s.mid)}
-                  >
-                    {actions.has("clearCache", s.mid) ? "撤销清除" : "清除这个 UP 的缓存"}
-                  </button>
-                </Row>
-              ))}
-              {(subs ?? []).length === 0 && <div className="text-[12px]" style={{ color: "var(--text-3)" }}>还没有订阅</div>}
-            </div>
-          </Section>
-        </Sections>
+        <CacheSection subs={subs ?? []} actions={actions} />
       );
 
     case "system":
@@ -727,6 +707,96 @@ function AboutSection() {
               <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>许可证</span>
               <span>{LICENSE_NAME}</span>
             </div>
+          )}
+        </div>
+      </Section>
+    </Sections>
+  );
+}
+
+/**
+ * 本机缓存：占用统计 + 每个 UP 的清除入口。
+ *
+ * 统计只在**这一页打开时扫一次**（挂载时读一次），没有轮询、没有文件监听、
+ * 没有后台监控。清除走的是原有草稿队列：点一下只是标记待清除，「保存并退出」
+ * 才真正执行 —— 那时面板已经关掉了，所以下次打开这一页自然就是清除后的数字。
+ * 待清除期间把预计的剩余量直接标出来，不必等保存后再看。
+ */
+function CacheSection({ subs, actions }: { subs: Subscription[]; actions: PendingApi }) {
+  const [usage, setUsage] = useState<CacheUsage | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void getCacheUsage()
+      .then((u) => {
+        if (alive) setUsage(u);
+      })
+      .catch(() => {
+        /* 读不到就显示「—」，不能因此打断设置页 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const sizeOf = (mid: number) => usage?.users[String(mid)] ?? 0;
+  const userTotal = subs.reduce((sum, s) => sum + sizeOf(s.mid), 0);
+  const keptTotal = subs.reduce(
+    (sum, s) => sum + (actions.has("clearCache", s.mid) ? 0 : sizeOf(s.mid)),
+    0,
+  );
+  const anyPending = actions.pending.some((p) => p.kind === "clearCache");
+
+  return (
+    <Sections>
+      <Section title="本机缓存" open>
+        <div className="text-[12px] mb-2" style={{ color: "var(--text-2)" }}>
+          头像、Banner、头像框和装扮图片会缓存在本机，再次查看时不用重新下载。<br />
+          清除缓存后，下次查看这些图片时会重新获取。
+        </div>
+
+        <Row label="当前总缓存">
+          <span className="text-[12.5px]" style={{ color: "var(--text)" }}>
+            {usage ? formatCacheSize(usage.total) : "—"}
+          </span>
+        </Row>
+        <Row label="订阅用户缓存">
+          <span className="text-[12.5px]" style={{ color: "var(--text)" }}>
+            {usage ? formatCacheSize(userTotal) : "—"}
+            {usage && anyPending && (
+              <span style={{ color: "var(--text-3)" }}> → {formatCacheSize(keptTotal)}</span>
+            )}
+          </span>
+        </Row>
+
+        <div className="flex flex-col gap-1 mt-3">
+          {subs.map((s) => {
+            const clearing = actions.has("clearCache", s.mid);
+            return (
+              <div key={s.mid} className="settings-row py-2" style={{ alignItems: "flex-start" }}>
+                <div className="min-w-0">
+                  <div className="text-[12.5px] truncate" style={{ color: "var(--text)" }}>
+                    {s.remark || s.name || `UID ${s.mid}`}
+                  </div>
+                  <div className="text-[11px] truncate" style={{ color: "var(--text-3)" }}>
+                    UID {s.mid}
+                  </div>
+                  <div className="text-[11.5px] mt-0.5" style={{ color: "var(--text-2)" }}>
+                    缓存：{usage ? formatCacheSize(sizeOf(s.mid)) : "—"}
+                  </div>
+                </div>
+                <button
+                  className={`btn text-[11px] px-2 py-1 flex-none${clearing ? " pending-action" : ""}`}
+                  title="保存并退出后才会真正清除本机缓存"
+                  onClick={() => actions.toggle("clearCache", s.mid)}
+                >
+                  {clearing ? "撤销清除" : "清除这个 UP 的缓存"}
+                </button>
+              </div>
+            );
+          })}
+          {subs.length === 0 && (
+            <div className="text-[12px]" style={{ color: "var(--text-3)" }}>还没有订阅</div>
           )}
         </div>
       </Section>
