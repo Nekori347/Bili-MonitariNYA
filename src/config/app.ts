@@ -17,15 +17,10 @@ export const AUTHOR_BILIBILI_URL = "https://space.bilibili.com/17409970";
 export const GITHUB_OWNER = "Nekori347";
 export const GITHUB_OWNER_URL = `https://github.com/${GITHUB_OWNER}`;
 
-/**
- * The repository name. The repository itself is not created yet, so the 关于
- * page shows 待正式仓库创建后填写 instead of a link that would 404 — but the
- * address is fully resolved here, ready for the release step.
- */
 export const GITHUB_REPO = "Bili-MonitariNYA";
 
-/** The repository does not exist yet; 关于 says so rather than linking to it. */
-export const REPO_PUBLISHED = false;
+/** 仓库已正式发布，关于页与下载地址直接指向真实仓库。 */
+export const REPO_PUBLISHED = true;
 
 export const GITHUB_REPO_URL = GITHUB_REPO
   ? `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}`

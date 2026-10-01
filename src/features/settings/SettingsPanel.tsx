@@ -38,7 +38,6 @@ import {
   DOWNLOAD_URL,
   LICENSE_NAME,
   PROJECT_URL,
-  REPO_PUBLISHED,
 } from "../../config/app";
 import { ChevronDown, ExternalLink, Plus, Undo, XIcon } from "../../components/ui/Icons";
 
@@ -688,13 +687,9 @@ function AboutSection() {
           </div>
           <div className="flex items-center gap-2">
             <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>GitHub</span>
-            {REPO_PUBLISHED ? (
-              <button className="link-btn" onClick={() => void openUrl(PROJECT_URL)}>
-                {PROJECT_URL.replace(/^https?:\/\//, "")} <ExternalLink size={11} />
-              </button>
-            ) : (
-              <span style={{ color: "var(--text-3)" }}>待正式仓库创建后填写</span>
-            )}
+            <button className="link-btn" onClick={() => void openUrl(PROJECT_URL)}>
+              {PROJECT_URL.replace(/^https?:\/\//, "")} <ExternalLink size={11} />
+            </button>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-16 flex-none" style={{ color: "var(--text-3)" }}>软件下载</span>

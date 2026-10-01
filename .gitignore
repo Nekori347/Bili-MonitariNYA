@@ -10,5 +10,11 @@ src-tauri/gen
 *.key
 *.key.pub
 
+# 环境变量与编辑器目录：一律不提交
+.env
+.env.*
+.vscode/
+.idea/
+
 # local scratch
 .tmp/
