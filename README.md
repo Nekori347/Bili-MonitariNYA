@@ -1,4 +1,4 @@
-# BiliUPMonitor
+# Bili-MonitariNYA
 
 Windows 桌面 Bilibili UP 主数据监控工具。轻量、常驻、Apple 风格毛玻璃界面 + B 站粉色强调。
 
@@ -20,7 +20,7 @@ Tauri 2 · React 19 · TypeScript · Vite · Tailwind CSS 4 · TanStack Query ·
 
 ## 安装
 
-直接运行安装包 `BiliUPMonitor_*.exe`（NSIS），或从源码构建：
+直接运行安装包 `Bili-MonitariNYA_*.exe`（NSIS），或从源码构建：
 
 ```bash
 npm install

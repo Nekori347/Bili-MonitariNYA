@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useUIStore } from "../../store/uiStore";
@@ -317,17 +317,11 @@ function GlobalBody({ category, tab, actions }: { category: Category; tab: strin
           </Section>
           <Section title="标题栏" open>
             <Row label="软件名显示">
-              <select
+              <TitleNameSwitch
                 value={global.titleName}
-                onChange={(e) => updateGlobal({ titleName: e.target.value as GlobalSettings["titleName"] })}
-              >
-                <option value="en">{APP_DISPLAY_NAME}</option>
-                <option value="zh">{APP_NAME_ZH}</option>
-              </select>
+                onChange={(v) => updateGlobal({ titleName: v })}
+              />
             </Row>
-            <div className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>
-              只改变标题栏显示的写法，软件本身的名字和仓库名都不会变。
-            </div>
           </Section>
           <Section title="窗口" open>
             <Row label="窗口置顶">
@@ -694,7 +688,7 @@ function AboutSection() {
             <div className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>
               {APP_NAME_ZH}
             </div>
-            <MoeBlock />
+            <MoeBlock name={APP_NAME_ZH} />
             <div className="text-[11.5px]" style={{ color: "var(--text-3)" }}>
               {APP_DISPLAY_NAME}
             </div>
@@ -737,19 +731,66 @@ function AboutSection() {
 }
 
 /**
- * 萌百式玩梗黑块。
+ * 标题栏名称的二选一。
  *
- * 平时是一块完全遮住内容的黑条，鼠标移上去时黑条从左往右抹掉，露出被横线划掉的
- * 小字 —— 像把涂黑的地方解密出来。纯装饰，不承载任何功能，也不抢眼。
+ * 两个名字本身只是**静态文字**，可点的只有中间那一个按钮 —— 点它就在两边之间来回
+ * 切。名字不做成按钮，是为了让中文名这一侧保持原样：它下面还挂着萌百式玩梗黑块，
+ * 做成按钮会把彩蛋盖掉。
  */
-function MoeBlock() {
+function TitleNameSwitch({
+  value,
+  onChange,
+}: {
+  value: "en" | "zh";
+  onChange: (v: "en" | "zh") => void;
+}) {
+  const zh = value === "zh";
   return (
-    <span className="moe-block">
-      <span className="moe-word">视奸</span>
-      <span className="moe-cover" aria-hidden="true" />
+    <span className="title-name-row">
+      <span className={`title-name-opt${zh ? "" : " on"}`}>{APP_DISPLAY_NAME}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={zh}
+        aria-label="切换标题栏名称"
+        title="切换标题栏名称"
+        className={`title-name-toggle${zh ? " on" : ""}`}
+        onClick={() => onChange(zh ? "en" : "zh")}
+      >
+        <span className="title-name-knob" />
+      </button>
+      <span className="title-name-side">
+        <span className={`title-name-opt${zh ? " on" : ""}`}>{APP_NAME_ZH}</span>
+        <MoeBlock name={APP_NAME_ZH} size={11.5} />
+      </span>
     </span>
   );
 }
+
+/**
+ * 萌百式玩梗黑块。
+ *
+ * 黑块正好落在中文名里被遮住的那两个字下面，靠的是用**同一套字体字号**先渲染一遍
+ * 前缀和这两个字作为不可见占位 —— 不去量像素，也不写死任何偏移。鼠标移上去时黑块
+ * 从左往右抹掉，露出被横线划掉的小字。纯装饰。
+ */
+function MoeBlock({ name, size = 14 }: { name: string; size?: number }) {
+  const at = name.indexOf(MOE_ANCHOR);
+  const prefix = at > 0 ? name.slice(0, at) : "";
+  return (
+    <span className="moe-block" style={{ "--moe-size": `${size}px` } as CSSProperties}>
+      <span className="moe-metric" aria-hidden="true">{prefix}</span>
+      <span className="moe-slot">
+        <span className="moe-metric" aria-hidden="true">{MOE_ANCHOR}</span>
+        <span className="moe-word">视奸</span>
+        <span className="moe-cover" aria-hidden="true" />
+      </span>
+    </span>
+  );
+}
+
+/** 黑块遮住的是中文名里的这两个字。 */
+const MOE_ANCHOR = "监视";
 
 /* ------------------------------------------------------------------ *
  * 订阅管理（全局设置）

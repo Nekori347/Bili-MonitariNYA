@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { appWindow } from "../../utils/window";
 import { useSettingsStore } from "../../store/settingsStore";
 import {
@@ -50,9 +50,17 @@ export function Titlebar() {
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
   const windowMode = useUIStore((s) => s.windowMode);
   const cycleWindowMode = useUIStore((s) => s.cycleWindowMode);
-  const showToast = useUIStore((s) => s.showToast);
   const [maximized, setMaximized] = useState(false);
   const logoRef = useRef<HTMLSpanElement>(null);
+  /* 窗口模式的提示挂在按钮下面，而不是弹到窗口底部 —— 按钮就在顶部导航栏上。 */
+  const [modeTip, setModeTip] = useState<string | null>(null);
+  const modeTipTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (modeTipTimer.current != null) window.clearTimeout(modeTipTimer.current);
+    },
+    [],
+  );
 
   /**
    * 彩蛋：点一下 Logo，头像左右摇一下头，只摇一次。
@@ -81,7 +89,9 @@ export function Titlebar() {
   const cycleMode = () => {
     const next = cycleWindowMode();
     updateGlobal({ alwaysOnTop: isOnTop(next) });
-    showToast(WINDOW_MODE_LABEL[next], 1600);
+    setModeTip(WINDOW_MODE_LABEL[next]);
+    if (modeTipTimer.current != null) window.clearTimeout(modeTipTimer.current);
+    modeTipTimer.current = window.setTimeout(() => setModeTip(null), 1600);
   };
 
   const cycleTheme = () => {
@@ -121,14 +131,17 @@ export function Titlebar() {
       </div>
 
       <div className="flex items-center no-drag">
-        <button
-          className="titlebar-btn"
-          title={`${WINDOW_MODE_LABEL[windowMode]}（点击切换）`}
-          onClick={cycleMode}
-          style={isOnTop(windowMode) || isThrough(windowMode) ? { color: "var(--accent)" } : undefined}
-        >
-          <WindowModeIcon mode={windowMode} />
-        </button>
+        <span className="winmode-wrap">
+          <button
+            className="titlebar-btn"
+            title={`${WINDOW_MODE_LABEL[windowMode]}（点击切换）`}
+            onClick={cycleMode}
+            style={isOnTop(windowMode) || isThrough(windowMode) ? { color: "var(--accent)" } : undefined}
+          >
+            <WindowModeIcon mode={windowMode} />
+          </button>
+          {modeTip && <span className="winmode-tip">{modeTip}</span>}
+        </span>
         <button className="titlebar-btn" title="最小化" onClick={() => void appWindow.minimize()}>
           <Minus size={13} />
         </button>

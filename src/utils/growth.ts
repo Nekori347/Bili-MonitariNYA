@@ -42,16 +42,20 @@ const WINDOWS: [keyof Growth, number][] = [
 
 /**
  * Pick, for each window, the newest sample at or before `now - offset` and
- * return `current - sample`. Missing history leaves the window null (rendered
- * blank, never a fake "+0").
+ * return `current - sample`.
+ *
+ * 历史不够长时（程序刚开始记录），退回用**范围内最早的一条**来比，而不是留空：
+ * 只要数字和那条记录不一样就显示胶囊。这里没有任何阈值 —— 不看变化量大小，不看
+ * 百分比，不看字段，唯一的条件是 `current !== best`。
  */
 function growthFrom(
   samples: { capturedAt: number; value: number | null }[],
   current: number | null | undefined,
 ): Growth {
   const out: Growth = { ...EMPTY_GROWTH };
-  if (current == null) return out;
+  if (current == null || samples.length === 0) return out;
   const now = Date.now();
+  const oldest = samples[0].value;
   for (const [key, offset] of WINDOWS) {
     const target = now - offset;
     let best: number | null = null;
@@ -60,6 +64,7 @@ function growthFrom(
       if (s.capturedAt <= target) best = s.value;
       else break;
     }
+    if (best == null) best = oldest;
     if (best == null) continue;
     // A zero delta is noise, not growth — leave the slot blank.
     if (current !== best) out[key] = current - best;

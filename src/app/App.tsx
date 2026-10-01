@@ -13,6 +13,7 @@ import { VideoList } from "../features/video-list/VideoList";
 import { AddSubscriptionModal } from "../features/subscriptions/AddSubscriptionModal";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
 import { useBackgroundRefresh } from "../queries/background";
+import { APP_NAME_ZH } from "../config/app";
 import {
   applyWindowEffects,
   applyWindowBounds,
@@ -191,7 +192,7 @@ function useTrayEvents() {
     const un1 = onWindowHidden(() => {
       setWindowVisible(false);
       if (!useSettingsStore.getState().global.trayToastShown) {
-        showToast("Bili Monitor 仍在后台运行，可从系统托盘重新打开。");
+        showToast(`${APP_NAME_ZH} 仍在后台运行，可从系统托盘重新打开。`);
         updateGlobal({ trayToastShown: true });
       }
     });
@@ -368,7 +369,7 @@ function ManageScrim() {
   if (!managing) return null;
   return (
     <div className="main-scrim" aria-hidden>
-      <span className="main-scrim-hint">正在管理订阅，右侧已暂停操作</span>
+      <span className="main-scrim-hint">删除模式</span>
     </div>
   );
 }

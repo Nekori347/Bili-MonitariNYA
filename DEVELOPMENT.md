@@ -1,4 +1,4 @@
-# BiliUPMonitor 开发说明
+# Bili-MonitariNYA 开发说明
 
 ## 目录结构
 

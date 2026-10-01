@@ -3,10 +3,11 @@
  * author address is written down — 关于 / 更新 read them, nothing else does.
  */
 
-export const APP_DISPLAY_NAME = "BILI-MonitarinNya";
+/** 英文名。全项目只有这一处定义，标题栏 / 关于页 / 托盘都读它。 */
+export const APP_DISPLAY_NAME = "Bili-MonitariNYA";
 
 /** 中文名，仅用于显示（标题栏可切换、关于页展示）。 */
-export const APP_NAME_ZH = "Bili监视姬";
+export const APP_NAME_ZH = "Bili 监视姬";
 
 export const APP_AUTHOR = "Nekori猫子猫_Net";
 
@@ -21,7 +22,7 @@ export const GITHUB_OWNER_URL = `https://github.com/${GITHUB_OWNER}`;
  * page shows 待正式仓库创建后填写 instead of a link that would 404 — but the
  * address is fully resolved here, ready for the release step.
  */
-export const GITHUB_REPO = "BILI-MonitarinNya";
+export const GITHUB_REPO = "Bili-MonitariNYA";
 
 /** The repository does not exist yet; 关于 says so rather than linking to it. */
 export const REPO_PUBLISHED = false;

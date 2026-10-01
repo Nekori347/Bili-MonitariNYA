@@ -64,10 +64,10 @@ npm run tauri build
 `createUpdaterArtifacts` 已开启，产物在：
 
 ```
-src-tauri/target/release/bundle/nsis/BiliUPMonitor_<version>_x64-setup.exe
-src-tauri/target/release/bundle/nsis/BiliUPMonitor_<version>_x64-setup.exe.sig   ← 更新签名
-src-tauri/target/release/bundle/nsis/BiliUPMonitor_<version>_x64.nsis.zip        ← 更新包
-src-tauri/target/release/bundle/nsis/BiliUPMonitor_<version>_x64.nsis.zip.sig
+src-tauri/target/release/bundle/nsis/Bili-MonitariNYA_<version>_x64-setup.exe
+src-tauri/target/release/bundle/nsis/Bili-MonitariNYA_<version>_x64-setup.exe.sig   ← 更新签名
+src-tauri/target/release/bundle/nsis/Bili-MonitariNYA_<version>_x64.nsis.zip        ← 更新包
+src-tauri/target/release/bundle/nsis/Bili-MonitariNYA_<version>_x64.nsis.zip.sig
 ```
 
 ## 4. 生成 latest.json
@@ -82,7 +82,7 @@ src-tauri/target/release/bundle/nsis/BiliUPMonitor_<version>_x64.nsis.zip.sig
   "platforms": {
     "windows-x86_64": {
       "signature": "<.nsis.zip.sig 的内容>",
-      "url": "https://github.com/<owner>/<repo>/releases/download/v0.2.0/BiliUPMonitor_0.2.0_x64.nsis.zip"
+      "url": "https://github.com/<owner>/<repo>/releases/download/v0.2.0/Bili-MonitariNYA_0.2.0_x64.nsis.zip"
     }
   }
 }
@@ -92,8 +92,8 @@ src-tauri/target/release/bundle/nsis/BiliUPMonitor_<version>_x64.nsis.zip.sig
 
 创建 tag `v<version>`，上传：
 
-- `BiliUPMonitor_<version>_x64-setup.exe`（给新用户安装）
-- `BiliUPMonitor_<version>_x64.nsis.zip` + `.sig`（给老用户增量更新）
+- `Bili-MonitariNYA_<version>_x64-setup.exe`（给新用户安装）
+- `Bili-MonitariNYA_<version>_x64.nsis.zip` + `.sig`（给老用户增量更新）
 - `latest.json`
 
 `releases/latest/download/latest.json` 会自动指向最新 release，客户端即可检查到更新。

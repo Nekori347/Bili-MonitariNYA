@@ -42,7 +42,7 @@ export class ErrorBoundary extends React.Component<
         }}
       >
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-          Bili Monitor frontend error
+          Bili-MonitariNYA frontend error
         </div>
         <div style={{ color: "#ff8f9c", whiteSpace: "pre-wrap" }}>{error.message}</div>
         {import.meta.env.DEV && (
