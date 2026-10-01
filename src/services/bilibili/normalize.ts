@@ -200,8 +200,12 @@ export function normalizeUpStat(raw: any, mid: number): Partial<UserStats> {
   const archive = d.archive ?? {};
   return {
     mid,
-    likes: typeof archive.likes === "number" ? archive.likes : null,
-    totalViews: typeof archive.view === "number" ? archive.view : null,
+    // `likes` sits at the TOP level of `data`, as a sibling of `archive` and
+    // `article` — it is not inside `archive`. Reading it from there silently
+    // produced null, which is why 获赞 never showed while 播放 (archive.view,
+    // which really is nested) worked.
+    likes: numOrNull(d?.likes),
+    totalViews: numOrNull(archive?.view),
   };
 }
 
