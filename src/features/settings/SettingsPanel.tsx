@@ -557,7 +557,8 @@ function PerUserBody({ mid, category, actions }: { mid: number; category: Catego
       <Sections>
         <Section title="这个 UP 的名片显示项" open>
           <InheritNote>没有单独设置的项目会跟随全局默认值。</InheritNote>
-          {/* 单个 UP 的预览显示这个 UP 的真实数据，因为它说明的正是“它会变成什么样”。 */}
+          {/* 预览永远是同一个中性样本，不绑定当前 UP：它说明的是开关的作用，
+              不是某个 UP 的真实数据。 */}
           <PreviewCard mid={mid} fields={effective} onToggle={applyField} />
           <OverrideList />
           <button

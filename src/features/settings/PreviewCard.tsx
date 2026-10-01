@@ -1,5 +1,6 @@
 import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { ProfileCardView } from "../profile-card/ProfileCard";
+import { PzZone } from "./PzZone";
 import { useCachedAsset } from "../../utils/useCachedAsset";
 import { useSettingsStore } from "../../store/settingsStore";
 import { EMPTY_GROWTH, type StatsGrowthMap } from "../../utils/growth";
@@ -76,8 +77,9 @@ const SIMPLE_GROWTH: StatsGrowthMap = {
  * nameplate, decoration and stats all sit exactly where they do on the main
  * page — this page never re-implements the layout.
  *
- * `neutral` forces the anonymous sample (全局设置永远用它)；单个 UP 的设置则显示
- * 该 UP 的真实数据，因为它说明的正是「这个 UP 会被改成什么样」。
+ * 全局设置和单个 UP 的设置都用这一个中性样本：预览说明的是「模板长什么样」，
+ * 从不绑定当前 UP，也从不让真实订阅数据出现在设置页里。`mid` 只用于覆盖写入
+ * 哪个 UP 的设置，不参与渲染。
  */
 export function PreviewCard({
   mid,
@@ -106,22 +108,19 @@ export function PreviewCard({
         const on = fields[field];
         const banner = field === "banner";
         return (
-          <span
-            className={`pz${on ? "" : " off"}${banner ? " banner-zone" : ""}`}
+          <PzZone
+            on={on}
+            label={FIELD_LABELS[field]}
+            hint={FIELD_HINTS[field]}
+            block={banner}
+            className={banner ? "banner-zone" : ""}
             // A zone may position itself so it stays the element's own hit area
             // (the banner fills the hero, the avatar frame overlays the avatar).
             style={banner ? { position: "absolute", inset: 0, display: "block", ...style } : style}
-            title={`${FIELD_LABELS[field]}：${FIELD_HINTS[field]}\n点击切换显示状态`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggle(field, !on);
-            }}
+            onToggle={() => onToggle(field, !on)}
           >
             {node}
-            <span className={`pz-tag${banner ? " inside" : ""}`}>
-              {on ? "✓" : "✕"} {FIELD_LABELS[field]}
-            </span>
-          </span>
+          </PzZone>
         );
       },
     [fields, onToggle],

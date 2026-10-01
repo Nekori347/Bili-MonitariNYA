@@ -174,7 +174,7 @@ export function ProfileCardView({
         )}
 
         <div
-          className="relative px-3 pb-2"
+          className={`relative px-3 pb-2${preview ? " pz-hero-grid" : ""}`}
           style={{
             display: "grid",
             gridTemplateColumns: "auto minmax(0, 1fr)",
@@ -188,6 +188,11 @@ export function ProfileCardView({
           {shown("avatar") && (
             <div className="flex flex-col items-center flex-none" style={{ overflow: "visible" }}>
               <div className="relative" style={{ width: stackSize, height: stackSize, overflow: "visible" }}>
+                {/* The avatar's zone is the avatar's own 72px box, set above the
+                    frame — not the whole 121px stack. Sizing it to the stack made
+                    the frame's zone cover it completely, so 头像 could never be
+                    switched without switching 头像框 too. The frame keeps the
+                    ring around it. */}
                 {z(
                   "avatar",
                   <button className="absolute inset-0 cursor-pointer flex items-center justify-center" onClick={() => open(spaceUrl(mid))} title="打开主页">
@@ -196,7 +201,16 @@ export function ProfileCardView({
                       style={{ width: AVATAR, height: AVATAR, background: "var(--surface-2)", outline: "2px solid var(--bg)" }}
                       draggable={false} {...assetImgHandlers()} />
                   </button>,
-                  { position: "absolute", inset: 0, display: "block" },
+                  {
+                    position: "absolute",
+                    left: "50%",
+                    top: "50%",
+                    transform: "translate(-50%, -50%)",
+                    width: AVATAR,
+                    height: AVATAR,
+                    display: "block",
+                    zIndex: 5,
+                  },
                 )}
 
                 {/* PENDENT_LAYER — the ring must wrap the avatar, never clip it.
@@ -219,13 +233,20 @@ export function ProfileCardView({
 
                 {/* Certification bolt: the wrapper owns the position, so the
                     zone can be a plain wrapper in preview and the badge still
-                    lands on the avatar's rim in the live card. */}
+                    lands on the avatar's rim in the live card. The zone is given
+                    the bolt's box explicitly — `CertIcon` is sized with
+                    `width: 100%`, so a content-sized zone would collapse to 0 and
+                    the badge would stop being clickable in the preview. */}
                 {shown("official") && profile.official && (
                   <div
                     className="absolute"
                     style={{ right: inset, bottom: inset, width: BOLT, height: BOLT, zIndex: 5 }}
                   >
-                    {z("official", <CertIcon role={profile.official.role} title={profile.official.title} />)}
+                    {z(
+                      "official",
+                      <CertIcon role={profile.official.role} title={profile.official.title} />,
+                      { position: "absolute", inset: 0, display: "block" },
+                    )}
                   </div>
                 )}
               </div>
@@ -325,8 +346,13 @@ const STAT_LABELS: Record<StatKey, string> = {
 /**
  * The profile counters. Hiding one removes its whole column (name, value and
  * growth) so the remaining columns redistribute evenly across the row instead
- * of leaving a gap. Each column additionally owns its growth pill: the pill is
- * its own preview zone, so 显示字段 and 显示增长 are independent choices.
+ * of leaving a gap.
+ *
+ * 数据栏 and 增长胶囊 are two SEPARATE things and are never nested: in the live
+ * card each pill sits under its own value, but the preview lifts the pills into
+ * their own row of switches. Nesting them made the pill's hit area part of the
+ * value's hit area, so a single click region owned two switches and neither
+ * could be hovered, tooltipped or turned off on its own.
  */
 function ProfileStats({
   fields, stats, growth, period, primaryMid, mid, preview, zone, shown,
@@ -343,57 +369,81 @@ function ProfileStats({
 }) {
   const open = (url: string) => void openUrl(url);
 
-  // The period switch is the master; each column's own switch refines it.
+  // The period switch is the master; each column's own switch refines it. It is
+  // read straight from `fields`, so turning 日/周/月增长 off is visible in the
+  // preview instead of the sample always looking enabled.
   const periodKey: keyof FieldVisibility =
     period === "day" ? "growthDay" : period === "week" ? "growthWeek" : "growthMonth";
-  const periodOn = shown(periodKey);
+  const periodOn = fields[periodKey];
 
   const visible = preview ? STAT_ORDER : STAT_ORDER.filter((k) => fields[k]);
 
+  const deltaOf = (k: StatKey): number | null => {
+    if (!periodOn || !shown(STAT_GROWTH_KEY[k])) return null;
+    const g = growth[k] ?? EMPTY_GROWTH;
+    return period === "day" ? g.day : period === "week" ? g.week : g.month;
+  };
+
+  /* `empty` is what a missing delta falls back to: nothing in the live card (the
+     slot just stays blank) and a dashed placeholder in the preview, so the switch
+     is still reachable before any history exists. */
+  const pill = (k: StatKey, empty?: ReactNode): ReactNode => {
+    const d = deltaOf(k);
+    return d != null ? <GrowthPill v={d} /> : empty;
+  };
+
+  const background = "color-mix(in srgb, var(--surface-2) 60%, transparent)";
+  const columns = { gridTemplateColumns: `repeat(${visible.length}, minmax(0, 1fr))` };
+
   return (
-    <div className="flex items-center gap-2 px-3" style={{ background: "color-mix(in srgb, var(--surface-2) 60%, transparent)", paddingTop: 3, paddingBottom: 2 }}>
-      {visible.length > 0 ? (
-        <div className="flex-1 grid" style={{ gridTemplateColumns: `repeat(${visible.length}, minmax(0, 1fr))` }}>
-          {visible.map((k) => {
-            const g = growth[k] ?? EMPTY_GROWTH;
-            const growthKey = STAT_GROWTH_KEY[k];
-            const delta = periodOn && shown(growthKey)
-              ? (period === "day" ? g.day : period === "week" ? g.week : g.month)
-              : null;
+    <div className="flex flex-col" style={{ background }}>
+      <div className="flex items-center gap-2 px-3" style={{ paddingTop: 3, paddingBottom: preview ? 1 : 2 }}>
+        {visible.length > 0 ? (
+          <div className="flex-1 grid" style={columns}>
+            {visible.map((k) => {
+              const cell = (
+                <StatCell
+                  label={STAT_LABELS[k]}
+                  value={stats?.[k] ?? null}
+                  deltaNode={preview ? undefined : pill(k)}
+                />
+              );
+              return (
+                <span key={k} style={{ display: "contents" }}>
+                  {preview && zone ? zone(k, cell) : cell}
+                </span>
+              );
+            })}
+          </div>
+        ) : (
+          <span className="flex-1" />
+        )}
+        {/* Low-weight entry point: icon only, hairline outline, accent on hover. */}
+        <button
+          className="upload-btn flex-none"
+          style={{ visibility: primaryMid === mid ? "visible" : "hidden" }}
+          onClick={() => open("https://member.bilibili.com/platform/upload-manager/article")}
+          title="投稿"
+        >
+          <Upload size={12} />
+        </button>
+      </div>
 
-            // 显示字段 与 显示增长 是两个独立开关：增长胶囊是它自己的点击区。
-            const deltaNode =
-              preview && zone
-                ? zone(
-                    growthKey,
-                    delta != null
-                      ? <GrowthPill v={delta} />
-                      : <span className="growth-pill empty">—</span>,
-                  )
-                : delta != null ? <GrowthPill v={delta} /> : undefined;
-
-            const cell = (
-              <StatCell label={STAT_LABELS[k]} value={stats?.[k] ?? null} deltaNode={deltaNode} />
-            );
-            return (
-              <span key={k} style={{ display: "contents" }}>
-                {preview && zone ? zone(k, cell) : cell}
+      {/* 增长胶囊 — its own row, aligned under the same columns, each pill its own
+          switch. Preview only: the live card keeps the pills inline with values. */}
+      {preview && zone && visible.length > 0 && (
+        <div className="flex items-center gap-2 px-3" style={{ paddingBottom: 3 }}>
+          <div className="flex-1 grid" style={columns}>
+            {visible.map((k) => (
+              <span key={k} className="flex justify-center">
+                {zone(STAT_GROWTH_KEY[k], pill(k, <span className="growth-pill empty">—</span>))}
               </span>
-            );
-          })}
+            ))}
+          </div>
+          {/* Reserves the 投稿 button's column so the grid stays aligned above. */}
+          <span className="flex-none" style={{ width: 22 }} />
         </div>
-      ) : (
-        <span className="flex-1" />
       )}
-      {/* Low-weight entry point: icon only, hairline outline, accent on hover. */}
-      <button
-        className="upload-btn flex-none"
-        style={{ visibility: primaryMid === mid ? "visible" : "hidden" }}
-        onClick={() => open("https://member.bilibili.com/platform/upload-manager/article")}
-        title="投稿"
-      >
-        <Upload size={12} />
-      </button>
     </div>
   );
 }
@@ -536,10 +586,14 @@ function Nameplate({ profile }: { profile: UserProfile }) {
  * colour (including its alpha) comes straight from
  * `uinfo_medal.v2_medal_color_*`. There is no per-level colour table.
  *
- * Sizing follows Bilibili's technique — a large font scaled down with `zoom`
- * rather than a small font — which is what keeps the glyphs from looking
- * cramped. `zoom` shrinks the layout box with the glyphs, so the name is never
- * clipped by its own transform.
+ * Layout is deliberately boring, because "boring" is what makes it stable:
+ *   `.fan-medal`  a non-shrinking inline-flex row
+ *   `.fm-name`    flex: 0 0 auto — its width is its text and nothing else, so a
+ *                 long UID beside it can never shift it
+ *   `.fm-level`   a FIXED 16px disc, flex-centring a full-width inner span, so
+ *                 1 / 8 / 18 / 21 / 99 all land on the same optical centre
+ * Neither `zoom` nor `overflow: hidden` is used anywhere here: a scaled scroll
+ * box was what sliced glyphs in half.
  */
 function FanMedal({ medal }: { medal: FansMedalData }) {
   const start = medal.colorStart ?? "var(--accent)";
@@ -581,8 +635,9 @@ function Ornament({ decoration, src }: { decoration: DynamicDecoration; src?: st
   const url = decoration.imageEnhance || src || decoration.cardUrl;
   const label = decoration.fanNumberText;
   if (!url) return null;
-  // The digits keep the decoration's own theme colour; the white stroke and the
-  // soft plate behind them are only there to keep them readable.
+  // The digits keep the decoration's own theme colour — never forced to white.
+  // The 1px white stroke and the soft shadow are the entire adjustment; there is
+  // no capsule, no card and no plate of ours anywhere in this ornament.
   const digitColor =
     decoration.colorFormat?.colors?.[0] ?? decoration.themeColor ?? decoration.color ?? "#fff";
   return (

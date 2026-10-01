@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { FieldVisibility, VideoFieldKey } from "../../types/settings";
-import { VIDEO_FIELD_LABELS } from "../../types/settings";
+import { FIELD_HINTS, VIDEO_FIELD_LABELS } from "../../types/settings";
+import { PzZone } from "./PzZone";
 import { Clock, Coin, Comment, Danmaku, Eye, Grip, Play, ThumbUp } from "../../components/ui/Icons";
 
 const VIS_KEY: Record<VideoFieldKey, keyof FieldVisibility> = {
@@ -76,11 +77,15 @@ export function VideoPreview({
   const column = (k: VideoFieldKey) => {
     const on = k === "pubdate" ? true : fields[VIS_KEY[k]];
     return (
-      <span
+      <PzZone
         key={k}
-        className={`pz${on ? "" : " off"}`}
-        title={`${VIDEO_FIELD_LABELS[k]}：点击${on ? "隐藏" : "显示"}`}
-        onClick={() => toggle(k)}
+        on={on}
+        label={VIDEO_FIELD_LABELS[k]}
+        hint={k === "pubdate" ? "投稿时间始终显示，不能关闭" : FIELD_HINTS[VIS_KEY[k]]}
+        onToggle={() => toggle(k)}
+        /* One fixed height for every column: the value and the growth pill of a
+           short field and a tall one still share the same optical centre. */
+        style={{ height: 30 }}
       >
         <span className="data-col" style={{ width: 58 }}>
           <span className="data-col-value">
@@ -95,8 +100,7 @@ export function VideoPreview({
             )}
           </span>
         </span>
-        <span className="pz-tag">{on ? "✓" : "✕"} {VIDEO_FIELD_LABELS[k]}</span>
-      </span>
+      </PzZone>
     );
   };
 
