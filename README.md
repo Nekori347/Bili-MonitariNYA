@@ -1,115 +1,126 @@
 # Bili-MonitariNYA
 
-Windows 桌面 Bilibili UP 主数据监控工具。轻量、常驻、Apple 风格毛玻璃界面 + B 站粉色强调。
+**Bili 监视姬** —— 一个适合常驻桌面的 Bilibili UP 主数据查看工具。
 
-## 功能
+把常看的 UP 主放进一个小窗口里，随时查看资料、粉丝 / 获赞 / 播放 / 投稿数据、近期投稿和一段时间内的变化，不需要来回打开多个空间页。
 
-- 通过 UID 或 `space.bilibili.com/{mid}` 主页链接订阅多个 UP 主
-- 用户名片：Banner、头像、简介、等级、大会员、认证、粉丝牌、挂件、动态装扮编号
-- 关注 / 粉丝 / 获赞 / 总播放 / 投稿数
-- 最近 X 条投稿（默认 20，可 10/20/30/50）
-- 每条视频：封面、标题、发布时间、播放、点赞、投币、当前在线观看
-- 本地排序（播放 / 点赞 / 在线 / 时间 × 正序 / 倒序）
-- 日 / 周 / 月增长胶囊（基于本地历史快照计算）
-- 全局 + 单 UP 主两级字段显示开关
-- 日 / 夜 / 跟随系统主题，可调透明度，窗口置顶，Mica 毛玻璃
+支持多 UP 订阅、Bilibili 扫码登录、个性化字段显示、明暗主题、托盘后台运行和应用内更新。
 
-## 技术栈
+<p align="center">
+  <img src="./docs/screenshots/01-overview-light.png" alt="Bili-MonitariNYA 主界面" width="760">
+</p>
 
-Tauri 2 · React 19 · TypeScript · Vite · Tailwind CSS 4 · TanStack Query · Zustand · SQLite（Tauri SQL 插件）
+<p align="center">
+  <a href="https://github.com/Nekori347/Bili-MonitariNYA/releases/latest"><b>下载最新版</b></a>
+  ·
+  <a href="https://github.com/Nekori347/Bili-MonitariNYA/releases">历史版本</a>
+  ·
+  <a href="./DEVELOPMENT.md">开发说明</a>
+</p>
 
-## 安装
+## 能做什么
 
-直接运行安装包 `Bili-MonitariNYA_*.exe`（NSIS），或从源码构建：
+- **同时关注多个 UP 主**  
+  通过 UID 或空间链接添加订阅，在侧栏里快速切换。
 
-```bash
-npm install
-npm run tauri build
+- **把空间资料集中在一张卡片里**  
+  查看头像、Banner、简介、等级、大会员、认证、粉丝牌、头像挂件、空间装扮，以及关注、粉丝、获赞、播放、投稿等数据。
+
+- **查看近期投稿，不必逐个点进空间**  
+  直接浏览封面、标题、发布时间、播放、点赞、投币、弹幕、评论和当前在线观看等信息。
+
+- **记录一段时间内的数据变化**  
+  本地保存历史快照，在数据有变化时显示增长情况。
+
+- **按自己的习惯决定界面显示什么**  
+  用户名片和视频信息都可以单独开关；视频字段可调整顺序，并可固定一个字段到最右侧。
+
+- **适合窄窗口长期放在桌面边缘**  
+  支持侧栏收起、窗口置顶、鼠标穿透、托盘后台运行，以及明亮 / 深色 / 跟随系统主题。
+
+- **本地缓存，切换订阅更快**  
+  已查看过的资料和图片会保留本地缓存；设置页可以查看总缓存与单个订阅的缓存占用。
+
+## 界面
+
+<p align="center">
+  <img src="./docs/screenshots/02-overview-dark-compact.png" alt="深色主题与紧凑侧栏" width="360">
+  &nbsp;&nbsp;
+  <img src="./docs/screenshots/03-profile-customize.png" alt="用户名片显示设置" width="360">
+</p>
+
+<p align="center">
+  <img src="./docs/screenshots/04-video-customize.png" alt="视频字段设置" width="760">
+</p>
+
+## 下载与安装
+
+前往 [Releases](https://github.com/Nekori347/Bili-MonitariNYA/releases/latest) 下载最新版本：
+
+```text
+Bili-MonitariNYA_<版本号>_x64-setup.exe
 ```
 
-构建产物位于 `src-tauri/target/release/bundle/`。
+运行安装包即可。
 
-> 前置：Node 18+、Rust（MSVC toolchain）、Visual Studio 2022 Build Tools（C++ 桌面开发工作负载）、WebView2。
+Bili-MonitariNYA 目前面向 Windows 桌面环境。
 
-## 使用
+## 快速开始
 
-1. 点击左下角「＋ 添加订阅」；
-2. 输入 B 站主页链接或 UID，点击添加；
-3. 左侧切换 UP 主，右侧查看资料卡与最近投稿；
-4. 顶部工具栏可调整排序字段与方向；
-5. 设置中可开启 / 关闭任意字段、调整主题 / 透明度 / 置顶。
+1. 打开软件，点击侧栏底部的「＋ 添加订阅」。
+2. 输入 Bilibili 用户 UID，或粘贴 `space.bilibili.com/{mid}` 空间链接。
+3. 从左侧头像列表切换不同 UP 主。
+4. 点击设置，可以调整用户名片、视频字段、主题、窗口行为、缓存和更新选项。
 
-### 侧栏
+## Bilibili 登录
 
-侧栏与主区分界线上有一条 Rail，是唯一的折叠 / 拖宽控制器：
+不登录也可以使用基础功能。
 
-- 展开态：拖动 Rail 调整侧栏宽度（140–260px，宽度会持久化）；中间 Chevron（`>`）点击折叠；
-- 折叠态：侧栏变为 40px 头像条（头像 + 自动刷新状态点 + 新投稿粉点），Chevron（`<`）点击展开；
-- 折叠态下鼠标悬停头像会显示应用自绘提示：有备注时显示「备注名 / 原用户名 / UID」，无备注时显示「用户名 / UID」。
+部分资料与统计需要登录态时，可以在：
 
-## 数据刷新
+**设置 → 系统 → B 站账号**
 
-- 前台选中 UP：资料 15 min，视频统计 5 min，在线人数 60 s
-- 后台 UP：资料 30 min，视频统计 15 min，在线人数不轮询
-- Bilibili API 并发上限 4，避免风控
+使用 Bilibili 手机客户端扫码登录。
 
-## 账号登录（可选）
+登录凭据只保存在本机，并由 Windows 加密保护；软件不会把你的 Bilibili Cookie 上传到第三方服务器。
 
-「总播放 / 获赞 / 粉丝牌」等字段在匿名访问下可能不可用，会显示为 `—`。
+## 数据与隐私
 
-在 设置 → 全局默认 → B 站账号 中点击「扫码登录」，使用哔哩哔哩手机客户端扫码即可。登录后：
+订阅、备注、设置、历史记录和缓存均保存在本机。
 
-- 自动绑定该账号为主账号，资料卡上出现「投稿」入口；
-- 自动启用需要登录的增强字段。
+Bili-MonitariNYA 不提供云同步，也不会建立独立账号系统。
 
-凭据（登录 Cookie）使用 **Windows DPAPI** 加密后写入 `%APPDATA%\com.biliupmonitor.desktop\credentials.bin`，只有当前 Windows 用户可解密；不写数据库、不打印日志、不上传。点击「退出登录」会删除本地凭据。不登录不影响核心监控功能。
+卸载或更新程序时，用户数据与程序文件是分开的；正常版本更新不会清空已有订阅和历史数据。
 
-## 设置页
+## 自动更新
 
-三级结构：左侧一级分类（外观 / 订阅 / 用户名片 / 视频 / 数据 / 系统）→ 顶部二级 Tab →
-可折叠三级 Section。底部固定 `[恢复默认]            [取消] [保存并退出]`。
+软件支持从 GitHub Releases 检查新版本。
 
-- 「用户名片」「视频」的字段开关使用**成品 Preview 映射开关**：直接点预览里的元素即可开关该字段，
-  不再铺满 Switch；
-- 「视频」分类里可以拖动调整字段顺序，并单独指定「固定到最右」；
-- 「系统 → 自动更新」可开关自动检查 / 启动时检查，并手动检查更新。
+你也可以随时在：
 
-## 自动更新（GitHub Releases）
+**设置 → 系统 → 自动更新**
 
-更新源已经指向 `Nekori347/Bili-MonitariNYA` 的 Releases（`src-tauri/tauri.conf.json`
-→ `plugins.updater.endpoints`），签名公钥也已内嵌。**仓库创建、首个 Release 上传之后
-即可自动生效**，不需要再改代码。签名私钥在 `.tauri/`（**已 gitignore，请勿提交**），
-完整发布流程见 [`scripts/RELEASE.md`](scripts/RELEASE.md)。
-
-更新只替换程序安装文件，不会清空订阅 / 备注 / 设置 / 历史增长 / B 站登录 / 缓存。
-
-## 数据保存位置
-
-- SQLite 数据库：`%APPDATA%\com.biliupmonitor.desktop\biliupmonitor.db`（由 Tauri 插件自动创建并执行 migration，无需手动初始化）
-- 包含：订阅列表、用户缓存、视频缓存、历史快照、应用设置
-
-## 常见接口错误
-
-| 提示 | 含义 | 处理 |
-| --- | --- | --- |
-| 风控拦截 (-352) | 接口被风控 | 首次运行会自动获取并缓存 buvid3 设备指纹（B 站要求），随后自动重试 |
-| 获取资料失败 | 用户不存在或网络异常 | 检查输入 / 网络 |
-| 获赞 / 总播放显示 `—` | 该字段需要登录 | 设置中扫码登录 |
-| 在线获取中 | 视频详情尚未返回 cid | 稍候自动补上 |
+手动检查更新，或直接从本仓库 Releases 下载最新版。
 
 ## 说明
 
-第一版不包含评论区、下载、播放器、动态流、云同步等功能。
+- Bili-MonitariNYA 是第三方工具，与哔哩哔哩官方无隶属关系。
+- 数据来自 Bilibili 当前可访问的公开 / 登录态接口，接口变化可能导致个别字段暂时不可用。
+- 本项目专注于 UP 主资料、投稿与数据变化查看，不包含播放器、视频下载、评论区客户端或动态流替代功能。
+
+## 开发
+
+项目使用 Tauri 2 + React + TypeScript 构建。
+
+如果你想自己构建、提交修改或了解项目结构，请查看：
+
+- [DEVELOPMENT.md](./DEVELOPMENT.md)
+- [发布流程](./scripts/RELEASE.md)
+
+欢迎通过 Issue / Pull Request 提交问题与改进。
 
 ## 许可证
 
-**GNU General Public License v3.0**（GPL-3.0）。完整条文见 [LICENSE](LICENSE)。
+本项目使用 [GNU General Public License v3.0](./LICENSE)（GPL-3.0）。
 
-```
 Copyright (C) 2026 Nekori猫子猫_Net
-本项目为自由软件，你可以依据自由软件基金会发布的 GNU 通用公共许可证（第 3 版
-或你选择的任何更新版本）条款重新发布和/或修改它。
-
-本项目分发时希望它有用，但不提供任何担保，甚至不提供可商售性或适用于特定用途
-的默示担保。详见 GNU 通用公共许可证。
-```
