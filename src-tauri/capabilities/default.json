@@ -16,6 +16,8 @@
     "core:window:allow-set-title",
     "sql:default",
     "sql:allow-execute",
-    "opener:default"
+    "opener:default",
+    "updater:default",
+    "process:default"
   ]
 }
