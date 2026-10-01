@@ -377,7 +377,7 @@ pub fn run() {
         .manage(ClickThrough::new())
         .setup(|app| {
             spawn_clickthrough_watch(app.handle().clone());
-            let show_i = MenuItem::with_id(app, "show", "显示 Bili Monitor", true, None::<&str>)?;
+            let show_i = MenuItem::with_id(app, "show", "显示 Bili 监视姬", true, None::<&str>)?;
             let refresh_i = MenuItem::with_id(app, "refresh", "立即刷新", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &refresh_i, &quit_i])?;
@@ -389,7 +389,7 @@ pub fn run() {
 
             let _tray = TrayIconBuilder::with_id("main-tray")
                 .icon(icon)
-                .tooltip("Bili Monitor")
+                .tooltip("Bili-MonitariNYA")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {

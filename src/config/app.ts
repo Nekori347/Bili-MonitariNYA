@@ -49,5 +49,5 @@ export const DOWNLOAD_URL = REPO_PUBLISHED
   ? GITHUB_RELEASES_URL
   : `${GITHUB_OWNER_URL}?tab=repositories`;
 
-/** Set once the licence is chosen; the row is hidden while it is empty. */
-export const LICENSE_NAME = "";
+/** 关于页展示的许可证名称；为空时该行隐藏。完整条文见仓库根目录的 LICENSE。 */
+export const LICENSE_NAME = "GPL-3.0";

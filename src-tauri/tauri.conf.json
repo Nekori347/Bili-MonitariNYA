@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "BiliUPMonitor",
+  "productName": "Bili-MonitariNYA",
   "version": "0.1.0",
   "identifier": "com.biliupmonitor.desktop",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "BiliUPMonitor",
+        "title": "Bili-MonitariNYA",
         "label": "main",
         "width": 480,
         "height": 720,
@@ -55,7 +55,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/OWNER/REPO/releases/latest/download/latest.json"
+        "https://github.com/Nekori347/Bili-MonitariNYA/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVFN0NBOTNDMTEzNTBCMDEKUldRQkN6VVJQS2w4N3NIS29FT1h5TlpuR0pMbE9IaVNzL2xkczlFSXRCTjdVblNsck5NVmlEYWEK"
     }

@@ -62,7 +62,7 @@ npm run tauri build
 - 自动绑定该账号为主账号，资料卡上出现「投稿」入口；
 - 自动启用需要登录的增强字段。
 
-凭据（登录 Cookie）使用 **Windows DPAPI** 加密后写入 `%APPDATA%\com.biliupmonitor.app\credentials.bin`，只有当前 Windows 用户可解密；不写数据库、不打印日志、不上传。点击「退出登录」会删除本地凭据。不登录不影响核心监控功能。
+凭据（登录 Cookie）使用 **Windows DPAPI** 加密后写入 `%APPDATA%\com.biliupmonitor.desktop\credentials.bin`，只有当前 Windows 用户可解密；不写数据库、不打印日志、不上传。点击「退出登录」会删除本地凭据。不登录不影响核心监控功能。
 
 ## 设置页
 
@@ -76,15 +76,16 @@ npm run tauri build
 
 ## 自动更新（GitHub Releases）
 
-代码结构已就绪（`createUpdaterArtifacts = true` + Tauri updater），发布时把
-`src-tauri/tauri.conf.json` 里的 endpoint 换成自己的仓库地址即可。签名密钥已生成在
-`.tauri/`（**已 gitignore，请不要提交私钥**）。完整流程见 [`scripts/RELEASE.md`](scripts/RELEASE.md)。
+更新源已经指向 `Nekori347/Bili-MonitariNYA` 的 Releases（`src-tauri/tauri.conf.json`
+→ `plugins.updater.endpoints`），签名公钥也已内嵌。**仓库创建、首个 Release 上传之后
+即可自动生效**，不需要再改代码。签名私钥在 `.tauri/`（**已 gitignore，请勿提交**），
+完整发布流程见 [`scripts/RELEASE.md`](scripts/RELEASE.md)。
 
 更新只替换程序安装文件，不会清空订阅 / 备注 / 设置 / 历史增长 / B 站登录 / 缓存。
 
 ## 数据保存位置
 
-- SQLite 数据库：`%APPDATA%\com.biliupmonitor.app\biliupmonitor.db`（由 Tauri 插件自动创建并执行 migration，无需手动初始化）
+- SQLite 数据库：`%APPDATA%\com.biliupmonitor.desktop\biliupmonitor.db`（由 Tauri 插件自动创建并执行 migration，无需手动初始化）
 - 包含：订阅列表、用户缓存、视频缓存、历史快照、应用设置
 
 ## 常见接口错误
@@ -99,3 +100,16 @@ npm run tauri build
 ## 说明
 
 第一版不包含评论区、下载、播放器、动态流、云同步等功能。
+
+## 许可证
+
+**GNU General Public License v3.0**（GPL-3.0）。完整条文见 [LICENSE](LICENSE)。
+
+```
+Copyright (C) 2026 Nekori猫子猫_Net
+本项目为自由软件，你可以依据自由软件基金会发布的 GNU 通用公共许可证（第 3 版
+或你选择的任何更新版本）条款重新发布和/或修改它。
+
+本项目分发时希望它有用，但不提供任何担保，甚至不提供可商售性或适用于特定用途
+的默示担保。详见 GNU 通用公共许可证。
+```

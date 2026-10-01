@@ -31,14 +31,14 @@ npx tauri signer generate -w .tauri/biliupmonitor.key -p ""
 "plugins": {
   "updater": {
     "endpoints": [
-      "https://github.com/<owner>/<repo>/releases/latest/download/latest.json"
+      "https://github.com/Nekori347/Bili-MonitariNYA/releases/latest/download/latest.json"
     ],
     "pubkey": "<公钥>"
   }
 }
 ```
 
-`<owner>/<repo>` 换成真实的 GitHub 仓库地址。
+仓库地址已经填好：`Nekori347/Bili-MonitariNYA`。仓库尚未创建，创建后无需再改这里。
 
 ## 2. 提升版本号
 
@@ -61,14 +61,16 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
 npm run tauri build
 ```
 
-`createUpdaterArtifacts` 已开启，产物在：
+`createUpdaterArtifacts` 已开启，产物在 `src-tauri/target/release/bundle/nsis/`：
 
 ```
-src-tauri/target/release/bundle/nsis/Bili-MonitariNYA_<version>_x64-setup.exe
-src-tauri/target/release/bundle/nsis/Bili-MonitariNYA_<version>_x64-setup.exe.sig   ← 更新签名
-src-tauri/target/release/bundle/nsis/Bili-MonitariNYA_<version>_x64.nsis.zip        ← 更新包
-src-tauri/target/release/bundle/nsis/Bili-MonitariNYA_<version>_x64.nsis.zip.sig
+Bili-MonitariNYA_<version>_x64-setup.exe      ← 安装包（也是更新包）
+Bili-MonitariNYA_<version>_x64-setup.exe.sig  ← 更新签名
 ```
+
+> 当前 Tauri 版本对 NSIS 不再单独产出 `.nsis.zip`，**签名直接签在安装包上**，
+> 所以 updater 的 `url` 指向 `-setup.exe`、`signature` 用它的 `.sig`。
+> （旧版 Tauri 才会额外产出 `.nsis.zip`，本仓库不需要。）
 
 ## 4. 生成 latest.json
 
@@ -81,26 +83,44 @@ src-tauri/target/release/bundle/nsis/Bili-MonitariNYA_<version>_x64.nsis.zip.sig
   "pub_date": "2026-10-01T00:00:00Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "<.nsis.zip.sig 的内容>",
-      "url": "https://github.com/<owner>/<repo>/releases/download/v0.2.0/Bili-MonitariNYA_0.2.0_x64.nsis.zip"
+      "signature": "<Bili-MonitariNYA_0.2.0_x64-setup.exe.sig 的内容>",
+      "url": "https://github.com/Nekori347/Bili-MonitariNYA/releases/download/v0.2.0/Bili-MonitariNYA_0.2.0_x64-setup.exe"
     }
   }
 }
 ```
 
+### 更新说明模板
+
+`latest.json` 的 `notes` 会原样显示在 设置 → 系统 → 自动更新 → 发现新版本 里，
+GitHub Release 的说明用同一份即可。复制下面这段改：
+
+```
+## 新内容
+- 
+
+## 修正
+- 
+
+## 说明
+- 本次更新只替换程序文件，订阅 / 备注 / 设置 / 历史增长 / B 站登录 / 图片缓存都会保留。
+```
+
+写法要求：一条一行，直接说改了什么，不要写「优化了体验」这类空话；不写内部实现细节。
+
 ## 5. 发布
 
 创建 tag `v<version>`，上传：
 
-- `Bili-MonitariNYA_<version>_x64-setup.exe`（给新用户安装）
-- `Bili-MonitariNYA_<version>_x64.nsis.zip` + `.sig`（给老用户增量更新）
+- `Bili-MonitariNYA_<version>_x64-setup.exe`（新用户安装 + 老用户更新，同一个文件）
+- `Bili-MonitariNYA_<version>_x64-setup.exe.sig`（updater 校验用）
 - `latest.json`
 
 `releases/latest/download/latest.json` 会自动指向最新 release，客户端即可检查到更新。
 
 ## 6. 用户数据安全约束
 
-更新只替换**程序安装目录**中的文件。以下数据全部位于 `%APPDATA%\com.biliupmonitor.app\`
+更新只替换**程序安装目录**中的文件。以下数据全部位于 `%APPDATA%\com.biliupmonitor.desktop\`
 与本地缓存目录，**不会被更新清空**：
 
 - SQLite 数据库（订阅、备注、视频缓存、历史快照、设置）
