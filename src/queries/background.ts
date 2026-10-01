@@ -12,10 +12,10 @@ import {
   setUserCacheProfile,
   setUserCacheStats,
 } from "../services/database/usersCache";
-import { insertStatsSnapshot } from "../services/database/statsSnapshots";
 import { saveVideos } from "../services/database/videos";
 import { markUnread, type Subscription } from "../services/database/subscriptions";
 import { computeStatsGrowth } from "../utils/growth";
+import { recordStatsSnapshot } from "./statsGrowth";
 
 /* Startup stage C: once the window is usable and the cached dashboard is on
  * screen, the UP the user is *not* looking at is brought up to date — one at a
@@ -65,7 +65,7 @@ async function refreshUp(sub: Subscription, limit: number, qc: QueryClient): Pro
     store.patch(mid, { stats });
     qc.setQueryData(profileKeys.stats(mid), stats);
     void setUserCacheStats(mid, stats).catch(() => {});
-    void insertStatsSnapshot(mid, stats).catch(() => {});
+    recordStatsSnapshot(mid, stats);
     void computeStatsGrowth(mid, stats)
       .then((statsGrowth) => useDashboardStore.getState().patch(mid, { statsGrowth }))
       .catch(() => {});

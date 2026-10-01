@@ -123,9 +123,13 @@ export function AccountSection() {
         登录后可以显示获赞数、总播放量和粉丝牌等需要登录才能看到的数据。扫码登录不会上传任何信息，登录凭据加密保存在本机。
       </div>
 
-      {/* ---- primary account (available logged in or not) ---- */}
-      <div className="flex items-center justify-between py-1">
-        <span className="text-[13px]" style={{ color: "var(--text-2)" }}>主账号（显示「投稿」入口）</span>
+      {/* ---- primary account (available logged in or not) ----
+           Uses the shared settings row so that a narrow window stacks the label
+           above the select instead of squeezing it to one character per line. */}
+      <div className="settings-row py-1">
+        <span className="settings-row-label text-[12.5px] shrink-0" style={{ color: "var(--text-2)" }}>
+          主账号（显示「投稿」入口）
+        </span>
         <select
           value={primaryMid ?? 0}
           onChange={(e) => {

@@ -8,13 +8,13 @@ import {
   setUserCacheProfile,
   setUserCacheStats,
 } from "../services/database/usersCache";
-import { insertStatsSnapshot } from "../services/database/statsSnapshots";
 import { isDefaultBannerUrl } from "../services/bilibili/adapter";
 import { profileInterval } from "../utils/refresh";
 import { computeStatsGrowth } from "../utils/growth";
 import { useUIStore } from "../store/uiStore";
 import { useAuthStore } from "../store/authStore";
 import { useDashboardStore, useSnapshot } from "../store/dashboardStore";
+import { recordStatsSnapshot } from "./statsGrowth";
 
 export const profileKeys = {
   profile: (mid: number) => ["profile", mid] as const,
@@ -98,7 +98,7 @@ export function useUserStats(mid: number, isForeground: boolean) {
       const fresh = await BilibiliAdapter.getUserStats(mid);
       void setUserCacheStats(mid, fresh).catch(() => {});
       // Growth history for the stats row (day/week/month).
-      void insertStatsSnapshot(mid, fresh).catch(() => {});
+      recordStatsSnapshot(mid, fresh);
       return fresh;
     },
     staleTime: STATS_STALE,

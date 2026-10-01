@@ -32,6 +32,7 @@ import { VideoPreview } from "./VideoPreview";
 import {
   APP_AUTHOR,
   APP_DISPLAY_NAME,
+  APP_NAME_ZH,
   AUTHOR_BILIBILI_URL,
   DOWNLOAD_URL,
   LICENSE_NAME,
@@ -222,20 +223,21 @@ export function SettingsPanel() {
 
           {/* level 2 + 3 */}
           <div className="flex-1 min-w-0 flex flex-col">
-            <div className="flex items-center gap-1 px-4 pt-3">
+            {/* 页签：选中的那一项接在内容区边上（上/左/右描边 + 无下边框），
+                未选中的平铺在同一行，不是一个高亮胶囊。 */}
+            <div className="settings-tabs">
               {cat.tabs.map((t, i) => (
                 <button
                   key={t}
-                  className="px-2.5 py-1 rounded-md text-xs"
-                  style={{
-                    background: tab === t ? "var(--accent-soft)" : "transparent",
-                    color: tab === t ? "var(--accent)" : "var(--text-2)",
-                  }}
+                  className={`settings-tab${tab === t ? " on" : ""}`}
                   onClick={() => setTabIndex(i)}
                 >
                   {t}
                 </button>
               ))}
+              {/* Carries the shelf line across the rest of the row, so the one
+                  under the selected tab is the only break in it. */}
+              <span className="settings-tabs-filler" aria-hidden="true" />
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -312,6 +314,20 @@ function GlobalBody({ category, tab, actions }: { category: Category; tab: strin
               <input type="range" min={60} max={100} value={global.opacity}
                 onChange={(e) => updateGlobal({ opacity: Number(e.target.value) })} className="w-44" />
             </Row>
+          </Section>
+          <Section title="标题栏" open>
+            <Row label="软件名显示">
+              <select
+                value={global.titleName}
+                onChange={(e) => updateGlobal({ titleName: e.target.value as GlobalSettings["titleName"] })}
+              >
+                <option value="en">{APP_DISPLAY_NAME}</option>
+                <option value="zh">{APP_NAME_ZH}</option>
+              </select>
+            </Row>
+            <div className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>
+              只改变标题栏显示的写法，软件本身的名字和仓库名都不会变。
+            </div>
           </Section>
           <Section title="窗口" open>
             <Row label="窗口置顶">
@@ -454,8 +470,16 @@ function GlobalBody({ category, tab, actions }: { category: Category; tab: strin
             <Row label="显示增长变化">
               <Switch on={global.fields.growthDay} onToggle={(v) => { updateField("growthDay", v); updateField("growthWeek", v); updateField("growthMonth", v); }} />
             </Row>
+            <Row label="增长数据跟随数据更新">
+              <Switch
+                on={global.growthFollowsRefresh}
+                onToggle={(v) => updateGlobal({ growthFollowsRefresh: v })}
+              />
+            </Row>
             <div className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>
-              增长数据来自本程序自己记录的历史，历史不足时会留空。
+              {global.growthFollowsRefresh
+                ? "每次更新数据都会记下当时的数字，日 / 周 / 月增长会更跟得上。"
+                : "不再记下新的数字，日 / 周 / 月增长按已经记录的内容计算。"}
             </div>
           </Section>
           <Section title="数据更新" open>
@@ -471,7 +495,8 @@ function GlobalBody({ category, tab, actions }: { category: Category; tab: strin
         <Sections>
           <Section title="本机缓存" open>
             <div className="text-[12px] mb-2" style={{ color: "var(--text-2)" }}>
-              头像、Banner、头像框和装扮图都会保存在本机，重新打开程序时立刻就能看到。
+              头像、Banner、头像框和装扮图片会缓存在本机，再次查看时不用重新下载。<br />
+              清除缓存后，下次查看这些图片时会重新获取。
             </div>
             <div className="flex flex-col gap-1">
               {(subs ?? []).map((s) => (
@@ -663,8 +688,16 @@ function AboutSection() {
     <Sections>
       <Section title="关于" open>
         <div className="flex flex-col gap-1.5 text-[12.5px]" style={{ color: "var(--text-2)" }}>
-          <div className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>
-            {APP_DISPLAY_NAME}
+          {/* 中文名 + 萌百式玩梗黑块，然后是英文名。这块只在设置里出现，
+              不会挤进标题栏。 */}
+          <div className="flex flex-col gap-1">
+            <div className="text-[14px] font-semibold" style={{ color: "var(--text)" }}>
+              {APP_NAME_ZH}
+            </div>
+            <MoeBlock />
+            <div className="text-[11.5px]" style={{ color: "var(--text-3)" }}>
+              {APP_DISPLAY_NAME}
+            </div>
           </div>
           <div>版本 {version || "—"}</div>
           <div className="flex items-center gap-2">
@@ -700,6 +733,21 @@ function AboutSection() {
         </div>
       </Section>
     </Sections>
+  );
+}
+
+/**
+ * 萌百式玩梗黑块。
+ *
+ * 平时是一块完全遮住内容的黑条，鼠标移上去时黑条从左往右抹掉，露出被横线划掉的
+ * 小字 —— 像把涂黑的地方解密出来。纯装饰，不承载任何功能，也不抢眼。
+ */
+function MoeBlock() {
+  return (
+    <span className="moe-block">
+      <span className="moe-word">视奸</span>
+      <span className="moe-cover" aria-hidden="true" />
+    </span>
   );
 }
 

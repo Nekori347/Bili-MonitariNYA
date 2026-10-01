@@ -174,15 +174,8 @@ export function ProfileCardView({
         )}
 
         <div
-          className={`relative px-3 pb-2${preview ? " pz-hero-grid" : ""}`}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "auto minmax(0, 1fr)",
-            alignItems: "end",
-            columnGap: 10,
-            zIndex: 2,
-            paddingTop: HERO_PAD_TOP,
-          }}
+          className={`card-hero relative px-3 pb-2${preview ? " pz-hero-grid" : ""}`}
+          style={{ zIndex: 2, paddingTop: HERO_PAD_TOP }}
         >
           {/* Left: avatar stack + level */}
           {shown("avatar") && (
@@ -257,7 +250,7 @@ export function ProfileCardView({
           {/* Middle: identity — 3 fixed rows */}
           <div className="min-w-0" style={{ paddingBottom: 7 }}>
             {/* row 1: name block · sex · vip */}
-            <div className="flex items-center" style={{ gap: 4 }}>
+            <div className="card-id-row flex items-center" style={{ gap: 4 }}>
               {/* 备注 and 用户名 are separate switches: the remark is its own
                   line, the account name its own, and each is its own preview
                   zone. With no remark the name simply takes the whole line and
@@ -296,7 +289,7 @@ export function ProfileCardView({
 
             {/* row 2: UID · fans medal · nameplate */}
             {(shown("uid") || (shown("fansMedal") && profile.fansMedal) || (shown("nameplate") && (profile.nameplateUrl || profile.nameplateName))) && (
-              <div className="flex items-center" style={{ gap: 5, marginTop: 4 }}>
+              <div className="card-id-row flex items-center" style={{ gap: 5, marginTop: 4 }}>
                 {shown("uid") && z("uid", <span className="text-[11px] leading-none" style={{ color: "var(--text-2)" }}>UID {mid}</span>)}
                 {shown("fansMedal") && profile.fansMedal && z("fansMedal", <FanMedal medal={profile.fansMedal} />)}
                 {shown("nameplate") && (profile.nameplateUrl || profile.nameplateName) && z(
@@ -393,13 +386,15 @@ function ProfileStats({
   };
 
   const background = "color-mix(in srgb, var(--surface-2) 60%, transparent)";
-  const columns = { gridTemplateColumns: `repeat(${visible.length}, minmax(0, 1fr))` };
+  /* The column count lives in a custom property so the narrow-window rules can
+     re-flow the same grid instead of the columns being frozen inline. */
+  const columns = { "--stat-cols": `repeat(${visible.length}, minmax(0, 1fr))` } as CSSProperties;
 
   return (
     <div className="flex flex-col" style={{ background }}>
       <div className="flex items-center gap-2 px-3" style={{ paddingTop: 3, paddingBottom: preview ? 1 : 2 }}>
         {visible.length > 0 ? (
-          <div className="flex-1 grid" style={columns}>
+          <div className="flex-1 grid stat-grid" style={columns}>
             {visible.map((k) => {
               const cell = (
                 <StatCell
@@ -433,7 +428,7 @@ function ProfileStats({
           switch. Preview only: the live card keeps the pills inline with values. */}
       {preview && zone && visible.length > 0 && (
         <div className="flex items-center gap-2 px-3" style={{ paddingBottom: 3 }}>
-          <div className="flex-1 grid" style={columns}>
+          <div className="flex-1 grid stat-grid" style={columns}>
             {visible.map((k) => (
               <span key={k} className="flex justify-center">
                 {zone(STAT_GROWTH_KEY[k], pill(k, <span className="growth-pill empty">—</span>))}

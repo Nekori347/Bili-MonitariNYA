@@ -5,6 +5,9 @@
 
 export const APP_DISPLAY_NAME = "BILI-MonitarinNya";
 
+/** 中文名，仅用于显示（标题栏可切换、关于页展示）。 */
+export const APP_NAME_ZH = "Bili监视姬";
+
 export const APP_AUTHOR = "Nekori猫子猫_Net";
 
 /** The author's Bilibili space — opened in the system browser. */

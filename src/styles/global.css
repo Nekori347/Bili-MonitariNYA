@@ -154,21 +154,39 @@ body {
    `transform-origin: left center` grows it rightward from its own left edge,
    and the margin grows with it so 标题 / 夜间 / 设置 slide right instead of
    being covered. The titlebar never changes height. */
+/* The wrapper owns two things the icon itself cannot: the rotating pivot for
+   the click easter egg, and the layout room the grown icon needs. Its width
+   tracks the grown icon (15px × 2.2 = 33px), so `transform-origin: center` is
+   always the centre of the icon the user actually sees — rotating about the
+   icon's own left-edge origin would swing it sideways instead of shaking it. */
+.logo-shake {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  transform-origin: center center;
+  transition: width 160ms ease-out;
+  cursor: pointer;
+}
+.logo-shake:hover {
+  width: 33px;
+}
 .app-logo {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: block;
   border-radius: 3px;
-  margin-right: 0;
   transform-origin: left center;
-  transition: transform 160ms ease-out, margin-right 160ms ease-out, box-shadow 160ms ease-out;
+  transition: transform 160ms ease-out, box-shadow 160ms ease-out;
   will-change: transform;
 }
 /* Grows out of its own spot: about the left edge so it reaches toward the
-   window's left/top corner, with the margin opening up so 标题 / 夜间 / 设置
+   window's left/top corner, with the wrapper opening up so 标题 / 夜间 / 设置
    slide right instead of being covered. */
 .app-logo:hover {
   transform: scale(2.2);
-  margin-right: 20px;
-  position: relative;
   z-index: 30;
   box-shadow: 0 3px 14px rgba(0, 0, 0, 0.3);
 }
@@ -646,7 +664,7 @@ body {
   font-weight: 600;
   white-space: nowrap;
   letter-spacing: 0.02em;
-  -webkit-text-stroke: 1px rgba(255, 255, 255, 0.9);
+  -webkit-text-stroke: 2px rgba(255, 255, 255, 0.9);
   paint-order: stroke fill;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   pointer-events: none;
@@ -712,25 +730,30 @@ body {
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.26);
 }
-/* The inner span fills the disc and centres its own text, so 1 / 8 / 18 / 21 /
-   99 share exactly one optical centre: the glyph box is centred first, and the
-   glyph is centred inside the box. No `zoom`, no `overflow: hidden`, no
-   transform — nothing that could round a glyph off-centre or clip it.
+/* The disc centres the digit geometrically, with nothing left to chance:
+     · `text-box: trim-both cap alphabetic` makes the box the digit IS — its
+       height is the cap height, not a line-height — so the centring cannot
+       drift with a font's ascent/descent. (Older engines ignore the property
+       and fall back to the line box, which is no worse than before.)
+     · `width/height: auto` is required: a 100% box would override the trim.
+     · Consolas is the first family because its figures are equal-width AND
+       drawn symmetrically inside their advance. Measured on the real pixels,
+       Segoe UI's proportional digits put "18" 0.58px right of centre and "21"
+       0.42px left (a 1.00px spread); Consolas brings that to 0.13px with all
+       five of 1 / 8 / 18 / 21 / 99 inside 0.25px of the centre.
    Reeji-CloudHuPo-GBK is Bilibili's level-digit face; it does not ship with the
-   app (no redistribution grant), so the tabular-numeral fallback carries it, a
-   slightly tighter tracking keeping a two-digit level inside the disc. */
+   app (no redistribution grant), so the stack falls back as above. */
 .fm-level > span {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  font-family: "Reeji-CloudHuPo-GBK", fanscard, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  display: block;
+  width: auto;
+  height: auto;
+  text-box: trim-both cap alphabetic;
+  font-family: Consolas, "Segoe UI", "PingFang SC", "Microsoft YaHei", monospace;
   font-size: 10px;
   line-height: 1;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 .fm-guard {
@@ -938,6 +961,104 @@ body {
   gap: 12px;
 }
 
+/* ---- 二级分类 = 页签 -------------------------------------------------------
+
+   The selected tab carries top/left/right edges and NO bottom edge, and the
+   shelf line under the row is simply interrupted where it sits — so it reads as
+   the page the content is bound to, not as a highlighted pill. The line is drawn
+   per tab plus one flexing filler, which is what makes the interruption exact
+   without having to paint the tab with the panel's (translucent) colour. */
+.settings-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 10px 16px 0;
+  flex: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.settings-tabs::-webkit-scrollbar {
+  display: none;
+}
+.settings-tab {
+  padding: 5px 12px 6px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+.settings-tab:hover {
+  color: var(--text);
+}
+.settings-tab.on {
+  color: var(--text);
+  border-color: var(--line);
+  border-bottom-color: transparent;
+}
+.settings-tabs-filler {
+  flex: 1 1 0;
+  min-width: 8px;
+  height: 1px;
+  margin-bottom: 0;
+  background: var(--line);
+}
+
+/* ---- 萌百式玩梗黑块 --------------------------------------------------------
+   Always painted over by the block; hovering wipes the block away from the left
+   and the struck-through word shows through. Decoration only. */
+.moe-block {
+  position: relative;
+  display: inline-block;
+  width: max-content;
+  border-radius: 3px;
+  line-height: 0;
+  cursor: default;
+}
+.moe-word {
+  display: inline-block;
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1.1;
+  color: var(--text-3);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.moe-cover {
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  background: #0d0d10;
+  border: 1px solid var(--line);
+  transform-origin: left center;
+  transition: transform 0.24s ease;
+}
+.moe-block:hover .moe-cover {
+  transform: scaleX(0);
+}
+
+/* ---- The profile card's own grid, kept in CSS so the narrow rules below can
+   re-flow it (an inline grid-template-columns would win over any media query). */
+.card-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: end;
+  column-gap: 10px;
+}
+.stat-grid {
+  grid-template-columns: var(--stat-cols);
+}
+
+/* ---- Narrow windows ------------------------------------------------------
+   A window this small must still be READABLE: nothing overlaps, nothing is
+   clipped, and no label is ever squeezed into a one-character column. The left
+   nav gives up its width first; the content keeps the rest. */
+
 @media (max-width: 720px) {
   .settings-nav {
     width: 74px;
@@ -950,6 +1071,7 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* Label on its own line, control under it — never two columns fighting. */
   .settings-row {
     flex-wrap: wrap;
     justify-content: flex-start;
@@ -961,6 +1083,46 @@ body {
   .settings-footer {
     flex-wrap: wrap;
     gap: 6px;
+  }
+}
+
+@media (max-width: 620px) {
+  /* Identity blocks stack under the avatar instead of being squeezed beside it,
+     and the counters re-flow into rows. */
+  .card-hero {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    align-items: start;
+    row-gap: 6px;
+  }
+  .card-id-row {
+    flex-wrap: wrap;
+    row-gap: 3px;
+  }
+  .stat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 6px;
+  }
+  .stat-cell-value {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 460px) {
+  .settings-nav {
+    width: 54px;
+  }
+  .settings-nav button {
+    padding-left: 7px !important;
+    padding-right: 2px !important;
+    font-size: 11.5px;
+  }
+  .settings-tabs {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1113,6 +1275,13 @@ body {
   height: 26px;
   z-index: 6;
 }
+/* The tab hangs off the card's top edge. Two details keep that junction from
+   ever flashing a second hairline while the panel slides in:
+     · the panel keeps its 1px top border and sits exactly on the card's own top
+       border, so its top edge lands ON that line instead of one pixel beside it
+       — the two read as the single line they are meant to be, and
+     · `will-change` keeps the panel on its own compositor layer for the whole
+       transition, so there is no layer promotion at the instant it settles. */
 .profile-handle {
   position: absolute;
   top: 0;
@@ -1123,7 +1292,6 @@ body {
   font-size: 10.5px;
   line-height: 1.4;
   border: 1px solid var(--line);
-  border-top: none;
   border-radius: 0 0 8px 8px;
   background: color-mix(in srgb, var(--bg) calc(var(--app-opacity) * 92%), transparent);
   color: var(--text-2);
@@ -1131,6 +1299,7 @@ body {
   -webkit-backdrop-filter: blur(18px);
   cursor: pointer;
   opacity: 0;
+  will-change: transform, opacity;
   transition: transform 0.16s ease, opacity 0.16s ease, color 0.16s ease;
 }
 .profile-hoverzone:hover + .profile-handle,

@@ -114,6 +114,13 @@ export interface GlobalSettings {
   updateAutoCheck: boolean;
   /** Silently check once shortly after launch. */
   updateCheckOnStart: boolean;
+  /**
+   * 增长数据跟随数据更新 — 开：每次更新数据都记一次增长；关：只用已有记录算增长，
+   * 不再因为刷新而写入新的记录点。
+   */
+  growthFollowsRefresh: boolean;
+  /** 标题栏显示哪个软件名：英文名（默认）或中文名。只影响显示文本。 */
+  titleName: "en" | "zh";
 }
 
 export interface PerUserSettings {
@@ -180,6 +187,8 @@ export const DEFAULT_SETTINGS: GlobalSettings = {
   newPostBadge: true,
   updateAutoCheck: true,
   updateCheckOnStart: true,
+  growthFollowsRefresh: true,
+  titleName: "en",
 };
 
 /**

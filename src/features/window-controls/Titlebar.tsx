@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { appWindow } from "../../utils/window";
 import { useSettingsStore } from "../../store/settingsStore";
 import {
@@ -9,7 +9,7 @@ import {
   type WindowMode,
 } from "../../store/uiStore";
 import type { ThemeMode } from "../../types/settings";
-import { APP_DISPLAY_NAME } from "../../config/app";
+import { APP_DISPLAY_NAME, APP_NAME_ZH } from "../../config/app";
 import { Gear, Lock, Maximize, Minus, Monitor, Moon, Pin, Restore, Sun, XIcon } from "../../components/ui/Icons";
 
 const THEME_CYCLE: ThemeMode[] = ["system", "light", "dark"];
@@ -45,12 +45,38 @@ function WindowFrameIcon() {
 
 export function Titlebar() {
   const theme = useSettingsStore((s) => s.global.theme);
+  const titleName = useSettingsStore((s) => s.global.titleName);
   const updateGlobal = useSettingsStore((s) => s.updateGlobal);
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
   const windowMode = useUIStore((s) => s.windowMode);
   const cycleWindowMode = useUIStore((s) => s.cycleWindowMode);
   const showToast = useUIStore((s) => s.showToast);
   const [maximized, setMaximized] = useState(false);
+  const logoRef = useRef<HTMLSpanElement>(null);
+
+  /**
+   * 彩蛋：点一下 Logo，头像左右摇一下头，只摇一次。
+   *
+   * Animating the wrapper rather than the icon itself is what keeps the pivot
+   * on the icon the user actually sees — the icon grows about its own LEFT edge,
+   * so a rotation about that edge would swing it sideways instead of shaking.
+   * The wrapper's box tracks the grown width, so its centre is always the icon's
+   * centre. The Web Animations API is used so a second click restarts cleanly
+   * instead of being ignored by an inert CSS class.
+   */
+  const shakeLogo = () => {
+    logoRef.current?.animate(
+      [
+        { rotate: "0deg" },
+        { rotate: "-11deg" },
+        { rotate: "9deg" },
+        { rotate: "-6deg" },
+        { rotate: "3.5deg" },
+        { rotate: "0deg" },
+      ],
+      { duration: 520, easing: "ease-in-out" },
+    );
+  };
 
   const cycleMode = () => {
     const next = cycleWindowMode();
@@ -79,8 +105,12 @@ export function Titlebar() {
     <header className="titlebar">
       <div className="drag-region" data-tauri-drag-region>
         <div className="flex items-center gap-1.5 no-drag" data-tauri-drag-region>
-          <img src="/icons/icon.png" alt="Bili Monitor" width={15} height={15} className="app-logo" />
-          <span className="font-semibold text-[12px]" style={{ color: "var(--text)" }}>{APP_DISPLAY_NAME}</span>
+          <span ref={logoRef} className="logo-shake" onClick={shakeLogo} title={APP_NAME_ZH}>
+            <img src="/icons/icon.png" alt={APP_NAME_ZH} width={15} height={15} className="app-logo" />
+          </span>
+          <span className="font-semibold text-[12px] truncate" style={{ color: "var(--text)" }}>
+            {titleName === "zh" ? APP_NAME_ZH : APP_DISPLAY_NAME}
+          </span>
           <button className="titlebar-btn" style={{ width: 22, height: 22 }} title={themeTitle} onClick={cycleTheme}>
             {themeIcon}
           </button>
